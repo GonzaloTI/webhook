@@ -96,9 +96,15 @@ def send_message():
         if not to_number or not message_body:
             return jsonify({'error': 'Faltan campos requeridos: to y message'}), 400
         
+        # Agregar prefijo 'whatsapp:' 
+        if not to_number.startswith('whatsapp:'):
+            to_number = 'whatsapp:' + to_number
+        
+        from_number = 'whatsapp:' + os.getenv('TWILIO_SANDBOX_NUMBER') 
+
         message = client.messages.create(
             body=message_body,
-            from_=os.getenv('TWILIO_PHONE_NUMBER'),
+            from_=from_number,
             to=to_number
         )
 
