@@ -1,5 +1,5 @@
 from twilio.rest import Client
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 import psycopg2
 from twilio.twiml.messaging_response import MessagingResponse
 from dotenv import load_dotenv
@@ -65,6 +65,7 @@ def webhook():
     print(f'Mensaje recibido de {from_number}: {body}')
 
     try:
+        logger.warning(f"Datos completos recibidos: {request.form}")
         # Obtener datos del mensaje
         body = request.form.get('Body', '')
         from_number = request.form.get('From')
@@ -122,7 +123,11 @@ def send_message():
     except Exception as e:
         logger.error(f"Error en /send_message: {e}")
         return jsonify({'error': str(e)}), 500
-
+@app.route("/logs")
+def get_logs():
+    with open("app.log", "r") as f:
+        content = f.read()
+    return Response(content, mimetype="text/plain")
 
 
 if __name__ == '__main__':
