@@ -38,6 +38,84 @@ def get_db_connection():
         logger.error(f"Coneccion fallida Postgres: {e}")
         raise
 
+def get_or_create_cliente_id(numero, nombre="desconocido"):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # buscl al cliente por numero de telefono
+        cursor.execute("SELECT id FROM cliente WHERE telefono = %s", (numero,))
+        result = cursor.fetchone()
+
+        if result:
+            return result[0]
+        else:
+            # Crear cliente nuevo si no existe
+            cursor.execute(
+                "INSERT INTO cliente (telefono, nombre) VALUES (%s, %s) RETURNING id",
+                (numero, nombre)
+            )
+            cliente_id = cursor.fetchone()[0]
+            conn.commit()
+            logger.info(f"Cliente creado con ID: {cliente_id}")
+            return cliente_id
+
+    except Exception as e:
+        logger.error(f"Error en get_or_create_cliente_id: {e}")
+        conn.rollback()
+        return None
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
+
+from datetime import date
+
+def get_conversacion_id(cliente_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Intentar recuperar una conversación existente para hoy
+        cursor.execute(
+            """
+            SELECT id FROM conversacion
+            WHERE cliente_id = %s AND fecha = %s
+            ORDER BY id DESC LIMIT 1
+            """,
+            (cliente_id, date.today())
+        )
+        result = cursor.fetchone()
+
+        if result:
+            return result[0]
+        else:
+            # Crear una nueva conversación
+            descripcion = f"Conversación iniciada el {date.today()}"
+            cursor.execute(
+                """
+                INSERT INTO conversacion (fecha, descripcion, cliente_id)
+                VALUES (%s, %s, %s)
+                RETURNING id
+                """,
+                (date.today(), descripcion, cliente_id)
+            )
+            conversacion_id = cursor.fetchone()[0]
+            conn.commit()
+            logger.info(f"Conversación creada con ID: {conversacion_id}")
+            return conversacion_id
+
+    except Exception as e:
+        logger.error(f"Error al obtener o crear conversación: {e}")
+        conn.rollback()
+        return None
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
+
 def store_message(conversation_id, message_type, content_text):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -70,7 +148,11 @@ def webhook():
         body = request.form.get('Body', '')
         from_number = request.form.get('From')
         
+        numero = from_number.replace('whatsapp:', '')  # numero sin el texto  "whatsapp:"
         logger.warning(f"Mensaje entrante {from_number}: msg: {body}")
+        
+        cliente_id = get_or_create_cliente_id(numero)
+        converzacion_id = get_conversacion_id(cliente_id)
         
         store_message(
             conversation_id=100,
@@ -79,7 +161,7 @@ def webhook():
             )
         
         response = MessagingResponse()
-        response.message(f"Hola, recibimos tu mensaje: {body}")
+        response.message(f"Hola, recibimos tu mensaje: {body} , Conversacion id: {converzacion_id}")
         
         return str(response)
     
