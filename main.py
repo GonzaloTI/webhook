@@ -5,9 +5,12 @@ from twilio.twiml.messaging_response import MessagingResponse
 from dotenv import load_dotenv
 import os
 import logging
+import openai  
 
-# Cargar variables del .env
+
 load_dotenv()
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
 
@@ -165,7 +168,63 @@ def store_message(conversation_id, requestfull):
     finally:
         cursor.close()
         conn.close()
+def generate_response_ia(question, conversacion_id):
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
 
+    try:
+        # Obtener historial de conversación
+        cursor.execute("""
+            SELECT contenido_texto
+            FROM mensaje
+            WHERE conversacion_id = %s
+            AND contenido_texto IS NOT NULL
+            ORDER BY id ASC
+        """, (conversacion_id,))
+        historial = cursor.fetchall()
+        historial_texto = "\n".join([fila[0] for fila in historial if fila[0]])
+
+        # Obtener lista de productos
+        cursor.execute("""
+            SELECT nombre, descripcion
+            FROM producto
+        """)
+        productos = cursor.fetchall()
+        productos_texto = "\n".join([f"{nombre}: {descripcion}" for nombre, descripcion in productos])
+
+        # Construir prompt
+        prompt = (
+            "Historial de conversación:\n"
+            f"{historial_texto}\n\n"
+            "Catálogo de productos:\n"
+            f"{productos_texto}\n\n"
+            "Pregunta del cliente:\n"
+            f"{question}\n\n"
+            "Genera una respuesta útil, clara y relacionada con los productos si es relevante:"
+        )
+
+        # Llamada a OpenAI
+        respuesta = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "Eres un asistente de ventas amable y eficiente."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500
+        )
+
+        mensaje_generado = respuesta["choices"][0]["message"]["content"]
+        logger.info(f"Respuesta IA generada: {mensaje_generado}")
+        return mensaje_generado
+
+    except Exception as e:
+        logger.error(f"Error en generate_response_ia: {e}")
+        return "Lo siento, ocurrió un error al generar la respuesta."
+    finally:
+        cursor.close()
+        conn.close()
+ 
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -195,6 +254,12 @@ def webhook():
             requestfull= requestt
             )
         
+         
+        generate_response_ia(
+            question=body ,
+            conversacion_id= get_converzacion_id
+            )
+        
         response = MessagingResponse()
         response.message(f"Hola, recibimos tu mensaje: {body} , Conversacion id: {get_converzacion_id}")
         
@@ -203,6 +268,10 @@ def webhook():
     except Exception as e:
         logger.error(f"Error en webhook: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+    
+    
 
 @app.route('/send_message', methods=['POST'])
 def send_message():

@@ -1,6 +1,7 @@
 Flask
 twilio
 python-dotenv
+openai
 psycopg2-binary
 gunicorn 
 requests
