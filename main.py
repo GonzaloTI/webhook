@@ -117,6 +117,40 @@ def get_conversacion_id(cliente_id):
         cursor.close()
         conn.close()
 
+def store_message_twilio(conversation_id, response_ia):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO mensaje (
+                tipo,
+                contenido_texto,
+                media_url,
+                media_mimetype,
+                media_filename,
+                conversacion_id
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                "ia",                 # tipo del mensaje
+                response_ia,          # contenido generado por IA
+                None,                 # media_url
+                None,                 # media_mimetype
+                None,                 # media_filename
+                conversation_id       # ID de la conversación
+            )
+        )
+        conn.commit()
+        logger.info("Respuesta de IA guardada en la base de datos")
+
+    except Exception as e:
+        logger.error(f"Error guardando respuesta IA: {e}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
 
 
 
@@ -258,13 +292,28 @@ def webhook():
             )
         
          
-        responseai =generate_response_ia(
+        respuesta_ia =generate_response_ia(
             question=body ,
             conversacion_id= get_converzacion_id
             )
+        if respuesta_ia:
+            store_message_twilio(
+                conversation_id=get_converzacion_id,
+                response_ia=respuesta_ia
+            )
         
+        #response = MessagingResponse()
+        #response.message(f"Hola, recibimos tu mensaje: {respuesta_ia} , Conversacion id: {get_converzacion_id}")
+        response_text = (
+                            f"Hola\n\n"
+                            f"Recibimos tu mensaje :\n\n"
+                            f"{respuesta_ia}\n\n"
+                            f"🆔 Conversación ID: {get_converzacion_id}"
+                        )
         response = MessagingResponse()
-        response.message(f"Hola, recibimos tu mensaje: {responseai} , Conversacion id: {get_converzacion_id}")
+        response.message(response_text)
+        return str(response)
+
         
         return str(response)
     
