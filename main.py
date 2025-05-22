@@ -5,12 +5,13 @@ from twilio.twiml.messaging_response import MessagingResponse
 from dotenv import load_dotenv
 import os
 import logging
-import openai  
+from openai import OpenAI
 
 
 load_dotenv()
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client_opneai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 app = Flask(__name__)
 
@@ -194,29 +195,31 @@ def generate_response_ia(question, conversacion_id):
         productos_texto = "\n".join([f"{nombre}: {descripcion}" for nombre, descripcion in productos])
 
         # Construir prompt
-        prompt = (
-            "Historial de conversación:\n"
-            f"{historial_texto}\n\n"
-            "Catálogo de productos:\n"
-            f"{productos_texto}\n\n"
-            "Pregunta del cliente:\n"
-            f"{question}\n\n"
-            "Genera una respuesta útil, clara y relacionada con los productos si es relevante:"
-        )
+        prompt = f"""Contexto del cliente:
+        {historial_texto}
+
+        Catálogo de productos:
+        {productos_texto}
+
+        Mensaje nuevo del cliente:
+        {question}
+
+        Responde de manera útil, clara y ofrece productos si corresponde."""
 
         # Llamada a OpenAI
-        respuesta = openai.ChatCompletion.create(
-            model="gpt-4",
+        response = client_opneai.chat.completions.create(
+            model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "Eres un asistente de ventas amable y eficiente."},
+                {"role": "system", "content": "Eres un asistente de ventas amigable."},
                 {"role": "user", "content": prompt}
-            ],
-            max_tokens=500
+            ]
         )
 
-        mensaje_generado = respuesta["choices"][0]["message"]["content"]
-        logger.info(f"Respuesta IA generada: {mensaje_generado}")
-        return mensaje_generado
+
+        respuesta_texto = response.choices[0].message.content
+        print("Respuesta IA:", respuesta_texto)
+        logger.info(f"Respuesta IA generada: {respuesta_texto}")
+        return respuesta_texto
 
     except Exception as e:
         logger.error(f"Error en generate_response_ia: {e}")
