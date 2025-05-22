@@ -258,13 +258,13 @@ def webhook():
             )
         
          
-        generate_response_ia(
+        responseai =generate_response_ia(
             question=body ,
             conversacion_id= get_converzacion_id
             )
         
         response = MessagingResponse()
-        response.message(f"Hola, recibimos tu mensaje: {body} , Conversacion id: {get_converzacion_id}")
+        response.message(f"Hola, recibimos tu mensaje: {responseai} , Conversacion id: {get_converzacion_id}")
         
         return str(response)
     
