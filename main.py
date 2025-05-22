@@ -238,7 +238,7 @@ def generate_response_ia(question, conversacion_id):
         Mensaje nuevo del cliente:
         {question}
 
-        Responde de manera útil, clara y ofrece productos si corresponde."""
+        Responde de manera útil, clara y separa tus ideas con saltos de línea. Si mencionas varios productos, usa una lista con guiones. Evita respuestas en una sola línea, separa los párrafos para mejorar la legibilidad."""
 
         # Llamada a OpenAI
         response = client_opneai.chat.completions.create(
