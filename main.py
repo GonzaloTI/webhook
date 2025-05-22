@@ -242,7 +242,7 @@ def generate_response_ia(question, conversacion_id):
         
         si el mensaje es solo saludo o preguntas no mensiones los productos, solo si la pregunta esta realcionada o sugiere los productos que tenemos tambien te pase el contexto del cliente 
         
-        tambien te apse el historial de convezacion, porsi las preguntas estan relacionadas hacia la conversacion o recordar la charla
+        tambien te pase el historial de convezacion, porsi las preguntas estan relacionadas hacia la conversacion o recordar la charla
         """
 
         # Llamada a OpenAI
