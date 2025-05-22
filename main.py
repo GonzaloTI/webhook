@@ -116,23 +116,56 @@ def get_conversacion_id(cliente_id):
 
 
 
-def store_message(conversation_id, message_type, content_text):
+def store_message(conversation_id, requestfull):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        num_media = int(requestfull.get("NumMedia", 0))
+        message_type = requestfull.get("MessageType", "text")
+        body = requestfull.get("Body", "")
+        media_url = None
+        media_mimetype = None
+        media_filename = None  
+
+        if num_media > 0:
+            media_url = requestfull.get("MediaUrl0")
+            media_mimetype = requestfull.get("MediaContentType0")
+            # intentar deducir un nombre por extensión
+            ext = media_mimetype.split("/")[-1] if media_mimetype else "bin"
+            media_filename = f"media.{ext}"
+        
         cursor.execute(
             """
-            SELECT * FROM cliente
-            """
+            INSERT INTO mensaje (
+                tipo,
+                contenido_texto,
+                media_url,
+                media_mimetype,
+                media_filename,
+                conversacion_id
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                message_type,
+                body if body else None,
+                media_url,
+                media_mimetype,
+                media_filename,
+                conversation_id
+            )
         )
+
         conn.commit()
         logger.info("Mensaje guardado en la base de datos")
+
     except Exception as e:
         logger.error(f"Error guardando mensaje: {e}")
         conn.rollback()
     finally:
         cursor.close()
         conn.close()
+
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -141,6 +174,9 @@ def webhook():
     body = request.form.get('Body')
 
     print(f'Mensaje recibido de {from_number}: {body}')
+    
+    requestfull = request.form
+
 
     try:
         logger.warning(f"Datos completos recibidos: {request.form}")
@@ -155,9 +191,8 @@ def webhook():
         converzacion_id = get_conversacion_id(cliente_id)
         
         store_message(
-            conversation_id=100,
-            message_type='text',
-            content_text=body
+            conversation_id=converzacion_id,
+            request= requestfull
             )
         
         response = MessagingResponse()
