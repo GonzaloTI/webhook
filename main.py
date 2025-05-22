@@ -175,7 +175,7 @@ def webhook():
 
     print(f'Mensaje recibido de {from_number}: {body}')
     
-    requestfull = request.form
+    requestt = request.form
 
 
     try:
@@ -188,11 +188,11 @@ def webhook():
         logger.warning(f"Mensaje entrante {from_number}: msg: {body}")
         
         cliente_id = get_or_create_cliente_id(numero)
-        converzacion_id = get_conversacion_id(cliente_id)
+        get_converzacion_id = get_conversacion_id(cliente_id)
         
         store_message(
-            conversation_id=converzacion_id,
-            request= requestfull
+            conversation_id=get_converzacion_id,
+            requestfull= requestt
             )
         
         response = MessagingResponse()
