@@ -232,13 +232,17 @@ def generate_response_ia(question, conversacion_id):
         prompt = f"""Contexto del cliente:
         {historial_texto}
 
-        Catálogo de productos:
+        Catálogo de productos que tenemos:
         {productos_texto}
 
-        Mensaje nuevo del cliente:
+        Mensaje nuevo del cliente o pregunta:
         {question}
 
-        Responde de manera útil, clara y separa tus ideas con saltos de línea. Si mencionas varios productos, usa una lista con guiones. Evita respuestas en una sola línea, separa los párrafos para mejorar la legibilidad."""
+        Responde de manera útil, clara y separa tus ideas con saltos de línea. Si mencionas varios productos, usa una lista con guiones. Evita respuestas en una sola línea, separa los párrafos para mejorar la legibilidad.
+        
+        si el mensaje es solo saludo o preguntas no mensiones los productos, solo si la pregunta esta realcionada o sugiere los productos que tenemos tambien te pase el contexto del cliente 
+        
+        """
 
         # Llamada a OpenAI
         response = client_opneai.chat.completions.create(
