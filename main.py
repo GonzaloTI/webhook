@@ -546,7 +546,14 @@ def webhook():
         logger.error(f"Error en webhook: {e}")
         return jsonify({"error": str(e)}), 500
 
-
+@app.route('/testjson', methods=['POST'])
+def test_json():
+    try:
+        data = request.get_json(force=True)
+        print("Datos recibidos:", data)
+        return jsonify({"recibido": data}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     
     
 @app.route('/generatepdf', methods=['POST'])
