@@ -1,3 +1,4 @@
+import requests
 from twilio.rest import Client
 from flask import Flask, Response, jsonify, request
 import psycopg2
@@ -12,6 +13,7 @@ load_dotenv()
 
 client_opneai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+PDFSHIFT_API_KEY = os.getenv("PDFSHIFT_API_KEY")
 
 app = Flask(__name__)
 
@@ -266,7 +268,225 @@ def generate_response_ia(question, conversacion_id):
     finally:
         cursor.close()
         conn.close()
- 
+        
+def generate_banner_html_whit_intereses(cliente_id):
+    try:
+        import psycopg2
+        import json
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Obtener nombre y número del cliente
+        cursor.execute("SELECT nombre, telefono FROM cliente WHERE id = %s", (cliente_id,))
+        cliente = cursor.fetchone()
+        if not cliente:
+            raise Exception("Cliente no encontrado")
+        nombre, numero = cliente
+
+        # Obtener intereses
+        cursor.execute("""
+            SELECT i.producto_id, i.promocion_id, i.categoria_id, i.nivel,
+                   p.nombre, p.descripcion, img.url, pr.valor
+            FROM interes i
+            LEFT JOIN producto p ON i.producto_id = p.id
+            LEFT JOIN imagen img ON p.id = img.producto_id
+            LEFT JOIN (
+                SELECT producto_id, valor
+                FROM precio
+                ORDER BY fecha_inicio DESC
+            ) pr ON pr.producto_id = p.id
+            WHERE i.cliente_id = %s
+            LIMIT 10;
+        """, (cliente_id,))
+        intereses = cursor.fetchall()
+
+        intereses_info = []
+
+        for row in intereses:
+            producto_id, promo_id, cat_id, nivel, prod_nombre, prod_desc, img_url, precio = row
+            if producto_id:
+                intereses_info.append({
+                    "tipo": "producto",
+                    "nombre": prod_nombre,
+                    "descripcion": prod_desc,
+                    "precio": float(precio) if precio else None,
+                    "imagen": img_url,
+                    "nivel": nivel
+                })
+            elif promo_id:
+                
+                cursor.execute("SELECT nombre FROM promocion WHERE id = %s", (promo_id,))
+                promo_data = cursor.fetchone()
+                promo_nombre = promo_data[0] if promo_data else f"Promoción {promo_id}"
+
+                cursor.execute("""
+                    SELECT p.nombre, pr.valor, pp.descuento_porcentaje
+                    FROM promo_producto pp
+                    JOIN producto p ON pp.producto_id = p.id
+                    LEFT JOIN (
+                        SELECT producto_id, valor
+                        FROM precio
+                        ORDER BY fecha_inicio DESC
+                    ) pr ON pr.producto_id = p.id
+                    WHERE pp.promocion_id = %s
+                """, (promo_id,))
+                
+                
+                productos_promo = cursor.fetchall()
+                promo_items = [{
+                    "nombre": p[0],
+                    "precio": float(p[1]) if p[1] else None,
+                    "descuento": float(p[2]) if p[2] is not None else None
+                } for p in productos_promo]
+
+                intereses_info.append({
+                    "tipo": "promocion",
+                    "id": promo_id,
+                    "nombre": promo_nombre,
+                    "productos": promo_items,
+                    "nivel": nivel
+                })
+            elif cat_id:
+    
+                cursor.execute("SELECT nombre, descripcion FROM categoria WHERE id = %s", (cat_id,))
+                cat_data = cursor.fetchone()
+                cat_nombre = cat_data[0] if cat_data else f"Categoría {cat_id}"
+                cat_desc = cat_data[1] if cat_data else None
+                intereses_info.append({
+                    "tipo": "categoria",
+                    "id": cat_id,
+                    "nombre": cat_nombre,
+                    "descripcion":cat_desc,
+                    "nivel": nivel
+                })
+
+        # Convertir los intereses en texto
+        descripciones = []
+        for interes in intereses_info:
+            if interes["tipo"] == "producto":
+                texto = f"Interesado en el producto: '{interes['nombre']}' ({interes['descripcion']}), precio: ${interes['precio']}, imagen: {interes['imagen']}."
+            elif interes["tipo"] == "promocion":
+                productos_txt = ", ".join([
+                    f" :{p['nombre']} (${p['precio']})" + 
+                    (f" con {p['descuento']}% de descuento" if p.get("descuento") else "")
+                    for p in interes["productos"]
+                ])
+                texto = f"Interesado en la promoción: ' Promocion:{interes['nombre']}' con productos: {productos_txt}."
+            elif interes["tipo"] == "categoria":
+                 texto = f"Interesado en productos de la categoría: ' Categoria: {interes['nombre']}' ({interes['descripcion']})."
+            descripciones.append(texto)
+            
+            
+        preferencias_texto = "\n".join(descripciones)
+
+
+        logger.critical(f"todo el texto de los intereces {preferencias_texto}.")  # Log del resultaod de intereces
+
+
+
+        # Prompt con intereses como texto
+        prompt = f"""
+        Eres un generador de contenido HTML para campañas publicitarias personalizadas.
+
+         Tu tarea:
+        Generar un HTML de banner publicitario dirigido a un cliente llamado **{nombre}**, con número de contacto **{numero}**, y con las siguientes preferencias:\n{preferencias_texto}
+
+         Instrucciones de como armar el html:
+        - El HTML debe ser compatible con PDFShift.
+        - Usa Bootstrap desde un CDN para aplicar estilos. Incluye este enlace en el <head>:
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        - Usa clases de Bootstrap para los estilos (no uses CSS personalizado ni <style>).
+        - No uses JavaScript.
+        - Ponle con Bootstrap mucho color , color de fondo, estilos con Bootstrap a las letras, que parezca una folleto publicitario.
+        - obligatorio poner fondo de la pagina de algun color segun veas la categoria que se tene de preferencia con boottrap.
+        - si hay productos de promocion, has una lista de esas promociones de 2 columnas en cards de colores.
+        - si hay categorias de preferencia, has cards de cada categoria.
+        - Debe parecer un anuncio llamativo o banner publicitario.
+        - Incluir un título atractivo y personalizado para {nombre}.
+        - Mostrar un mensaje principal conectado con sus intereses.
+        - si no hay preferencias , solo muestra algo vacio diciendo no tiene preferencias.
+        - hay tres secciones , si es que hay interes de: productos, promociones y de categorías , 
+        - Incluir imágenes con URLs de ejemplo si no se tienen.
+        - No ocupe ni inventes ningun producto o categoria, solo usa lo que te pase.
+        - Incluir al final un texto de contacto con la tienda +591 12345678.
+        
+
+         Responde únicamente con el HTML completo, sin explicaciones ni comentarios.
+        """
+
+        response = client_opneai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Eres un generador de banners en HTML para marketing digital."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        html_result = response.choices[0].message.content
+        logger.info(f"HTML generado para {nombre}: {html_result[:80]}...")  # Log parcial
+        return html_result
+
+    except Exception as e:
+        logger.error(f"Error generando banner: {e}")
+        return "<html><body><h1>Error generando banner</h1></body></html>"
+       
+        
+        
+        
+        
+        
+def generate_banner_html(nombre, numero, preferencias):
+    try:
+        
+        prompt = f"""
+            Eres un generador de contenido HTML para campañas publicitarias personalizadas.
+
+            🎯 Tu tarea:
+            Generar un HTML de banner publicitario dirigido a un cliente llamado **{nombre}**, con número de contacto **{numero}**, y con las siguientes preferencias: **{preferencias}**.
+
+            ✅ Requisitos:
+            - El HTML debe ser compatible con PDFShift.
+            - Usa Bootstrap desde un CDN para aplicar estilos. Incluye este enlace en el <head>:
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+            - Usa clases de Bootstrap para los estilos (no uses CSS personalizado ni <style>).
+            - No uses JavaScript.
+            - Ponle con Bootstrap mucho color , color de fondo, estilos con Bootstrap a las letras, queparezca una folleto publicitario
+            - Debe parecer un anuncio llamativo o banner publicitario.
+            - Incluir un título atractivo y personalizado para {nombre}.
+            - Mostrar un mensaje principal conectado con sus intereses.
+            - Agregar 2 a 3 ofertas relevantes basadas en las preferencias.
+            - Incluir imágenes con URLs de ejemplo como: https://www.lafam.com.co/cdn/shop/files/front-0RX7230__5204__P21__shad__al2_704x480.jpg.
+            - Incluir al final un texto de contacto con el número: **{numero}**.
+
+            📦 Responde únicamente con el HTML completo, sin explicaciones ni comentarios.
+
+            📄 Estructura esperada:
+            <html>
+            <head>...</head>
+            <body>...</body>
+            </html>
+            """
+
+
+       
+
+        response = client_opneai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Eres un generador de banners en HTML para marketing digital."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        html_result = response.choices[0].message.content
+        logger.info(f"HTML generado para {nombre}: {html_result[:80]}...")  # Log parcial
+        return html_result
+
+    except Exception as e:
+        logger.error(f"Error generando banner: {e}")
+        return "<html><body><h1>Error generando banner</h1></body></html>"
+
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -329,6 +549,81 @@ def webhook():
 
     
     
+@app.route('/generatepdf', methods=['POST'])
+def generate_pdf():
+    try:
+        data = request.get_json()
+        nombre = data.get("nombre")
+        numero = data.get("numero")
+        preferencias = data.get("preferencias")
+
+        if not all([nombre, numero, preferencias]):
+            return jsonify({"error": "Faltan campos requeridos"}), 400
+
+        html = generate_banner_html(nombre, numero, preferencias)
+        
+       
+        print(html)  # Quitar en producción
+
+        response = requests.post(
+            'https://api.pdfshift.io/v3/convert/pdf',
+            headers={ 'X-API-Key': PDFSHIFT_API_KEY },
+            json={ 'source': html,
+                    "landscape": False,
+                    "use_print": False}
+        )
+
+
+        response.raise_for_status()
+
+        return (response.content, 200, {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': 'inline; filename="banner.pdf"'
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+    
+@app.route('/generatepdfpersonal', methods=['POST'])
+def generatepdfpersonal():
+    try:
+        data = request.get_json()
+       
+        numero = data.get("numero")
+        
+
+        if not all([ numero]):
+            return jsonify({"error": "Faltan campos requeridos"}), 400
+
+        cliente_id = get_or_create_cliente_id(numero)
+        
+        
+        html = generate_banner_html_whit_intereses(cliente_id)
+
+        #print(html)  # Quitar en producción
+        
+        #return (html, 200, {'Content-Type': 'text/html'})
+
+        response = requests.post(
+            'https://api.pdfshift.io/v3/convert/pdf',
+            headers={ 'X-API-Key': PDFSHIFT_API_KEY },
+            json={ 'source': html,
+                    "landscape": False,
+                    "use_print": False}
+        )
+
+
+        response.raise_for_status()
+
+        return (response.content, 200, {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': 'inline; filename="banner.pdf"'
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
