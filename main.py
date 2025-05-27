@@ -564,6 +564,8 @@ def generate_pdf():
         
        
         print(html)  # Quitar en producción
+        
+        return (html, 200, {'Content-Type': 'text/html'})
 
         response = requests.post(
             'https://api.pdfshift.io/v3/convert/pdf',
