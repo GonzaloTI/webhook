@@ -584,7 +584,7 @@ def generate_pdf():
         })
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error trycatch": str(e)}), 500
 
 
     
