@@ -553,6 +553,9 @@ def webhook():
 def generate_pdf():
     try:
         data = request.get_json()
+        if data is None:
+            return jsonify({"error": "JSON inválido o Content-Type incorrecto"}), 400
+        data = request.get_json()
         nombre = data.get("nombre")
         numero = data.get("numero")
         preferencias = data.get("preferencias")
