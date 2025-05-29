@@ -27,24 +27,33 @@ class Embeddings:
         self.mensajeria = Mensajeria()
 
     def load_documents(self) -> List[Document]:
-        """Consulta la base de datos PostgreSQL y devuelve una lista de Document con nombre y descripción combinados."""
+        
         try:
             conn = self.mensajeria.get_db_connection()
             cursor = conn.cursor()
 
+            # Consulta para obtener el producto con su precio más reciente
             cursor.execute("""
-                SELECT id, nombre, descripcion
-                FROM producto
+                SELECT p.id, p.nombre, p.descripcion, pr.valor
+                FROM producto p
+                LEFT JOIN LATERAL (
+                    SELECT valor
+                    FROM precio
+                    WHERE producto_id = p.id
+                    ORDER BY fecha_inicio DESC
+                    LIMIT 1
+                ) pr ON true
             """)
 
             rows = cursor.fetchall()
             documents = [
                 Document(
-                    page_content=f"{row[1]}. {row[2]}",  # concatenar nombre y descripción
+                    page_content=f"Producto: {row[1]}, Descripción: {row[2]}, Precio: {row[3] if row[3] is not None else 'N/A'}",
                     metadata={
                         "id": str(row[0]),
                         "nombre": row[1],
-                        "descripcion": row[2]
+                        "descripcion": row[2],
+                        "precio": float(row[3]) if row[3] is not None else None
                     }
                 )
                 for row in rows
@@ -52,12 +61,13 @@ class Embeddings:
 
             cursor.close()
             conn.close()
-            logger.info(f" Se cargaron {len(documents)} documentos desde la base de datos")
+            logger.info(f"Se cargaron {len(documents)} documentos desde la base de datos con precios")
             return documents
 
         except Exception as e:
-            logger.error(f" Error al cargar documentos: {e}")
+            logger.error(f"Error al cargar documentos: {e}")
             return []
+
 
     def initialize(self) -> None:
         """Inicializa la base vectorial con Chroma desde documentos PostgreSQL."""
@@ -107,3 +117,41 @@ class Embeddings:
             })
             
         return results
+    def get_all_embeddings_as_text(self) -> str:
+       
+        if not self.vectorstore:
+            raise ValueError("Vector store not initialized. Call initialize() first.")
+
+        try:
+            # Obtener los documentos reales (no cada letra)
+            stored_data = self.vectorstore.get(include=["documents"])
+            docs: List[str] = stored_data["documents"]  # Esto ya es una lista de strings
+
+            return "\n\n".join(docs)  # Cada documento separado por doble salto de línea
+
+        except Exception as e:
+            logger.error(f"Error al obtener todos los embeddings como texto: {e}")
+            return ""
+    def rebuild_embeddings(self) -> None:
+      
+        logger.info("Reconstruyendo embeddings ")
+
+       
+        if os.path.exists(self.persist_dir):
+            import shutil
+            shutil.rmtree(self.persist_dir)
+            logger.info(f"Directorio '{self.persist_dir}' eliminado.")
+
+   
+        documents = self.load_documents()
+        if not documents:
+            logger.warning("No se encontraron documentos para regenerar embeddings")
+            return
+
+        start_time = time.time()
+        self.vectorstore = Chroma.from_documents(
+            documents=documents,
+            embedding=self.embeddings,
+            persist_directory=self.persist_dir
+        )
+        logger.info(f"Embeddings reconstruidos en {time.time() - start_time:.2f} segundos.")

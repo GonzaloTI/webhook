@@ -36,49 +36,49 @@ client = Client(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN'))
 
 mensajeria = Mensajeria()
 
-def generate_response_ia(question,historial_texto):
+def generate_response_ia(question,historial_texto,productospromcat):
     
-    conn = mensajeria.get_db_connection()
-    cursor = conn.cursor()
-
     try:
         
-        cursor.execute("""
-            SELECT nombre, descripcion
-            FROM producto
-        """)
-        productos = cursor.fetchall()
-        productos_texto = "\n".join([f"{nombre}: {descripcion}" for nombre, descripcion in productos])
-
-        # Construir prompt
-        prompt = f"""Contexto del cliente:
-        {historial_texto}
-
-        Catálogo de productos que tenemos:
-        {productos_texto}
-
-        Mensaje nuevo del cliente o pregunta:
-        {question}
-
-        Responde de manera útil, clara y separa tus ideas con saltos de línea. Si mencionas varios productos, usa una lista con guiones. Evita respuestas en una sola línea, separa los párrafos para mejorar la legibilidad.
         
-        si el mensaje es solo saludo o preguntas no mensiones los productos, solo si la pregunta esta realcionada o sugiere los productos que tenemos tambien te pase el contexto del cliente 
-        
-        tambien te pase el historial de convezacion, porsi las preguntas estan relacionadas hacia la conversacion o recordar la charla
-        """
+        system_prompt = """
+            Eres un asistente de ventas de gafas se lo mas corto posible con la respuesta no inventes nada.
+
+            Normas:
+            - Usa lenguaje útil, claro y amigable.
+            - Responde en párrafos con saltos de línea para mejorar la legibilidad.
+            - Si mencionas varios productos, usa listas con guiones.
+            - No inventes productos ni características: responde solo con base en el catálogo proporcionado.
+            - Si el mensaje es solo un saludo o una pregunta general, no menciones productos.
+            - Usa el historial de conversación para mantener el contexto si es necesario.
+            - sigue el contexto, ve si la pregunta anterior tiene que ver con la actual , si las preguntas anteriores se refieren a algun producto o promocion , reconoce que el nuevo ensaje esta relacionado con el anterior y basa tu respuesta en eso
+            """
+
+        user_prompt = f"""
+            Contexto del cliente- historial de la conversación:
+            {historial_texto}
+
+            Catálogo de productos:
+            {productospromcat}
+
+            Mensaje del cliente:
+            {question}
+            """
 
         # Llamada a OpenAI
         response = client_opneai.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "Eres un asistente de ventas amigable."},
-                {"role": "user", "content": prompt}
-            ]
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+                
+            ],
+                temperature=0.7, max_tokens=300
         )
 
 
         respuesta_texto = response.choices[0].message.content
-        print("Respuesta IA:", respuesta_texto)
+        #print("Respuesta IA:", respuesta_texto)
         logger.info(f"Respuesta IA generada: {respuesta_texto}")
         return respuesta_texto
 
@@ -86,8 +86,56 @@ def generate_response_ia(question,historial_texto):
         logger.error(f"Error en generate_response_ia: {e}")
         return "Lo siento, ocurrió un error al generar la respuesta."
     finally:
-        cursor.close()
-        conn.close()
+        pass
+        
+def analyze_question(question: str, historial_texto: str) -> str:
+    try:
+        system_prompt = """
+            -eres un analista para conmpletar mensaje o pregunta , basandote en el historial de la converzacion
+            -si no hay nada en el historial devueves lo mismo que esta en "Nueva pregunta del cliente:"
+           -si ves que si tiene relacion con la pregunta mas reciente hecha por el cliente concatenala y arma denuevo el mensaje o pregunta
+           - si es algo fuera de contexto, solo devuelve lo mismo que esta en "Nueva pregunta del cliente:"
+           - solo devueleve el mensaje reformulado, nada mas 
+            """
+        user_prompt = f"""
+        
+            Nueva pregunta del cliente:
+                {question}
+            
+        
+            Historial de conversación dividido por quien lo dijo [ cliente o la IA]:
+            la primeras  del historial son la mas recientes .
+            Historial:
+            {historial_texto}
+            ---aqui termina el historial------
+                
+            
+            importante : Devuelve solo la pregunta reconstruida acorde al historial, sin explicaciones.
+            
+            importante , si ves que la pregunta no esta relacionada con el historial devuelva lo mismo que esta en " Nueva pregunta del cliente:"
+            """
+
+        response = client_opneai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.3,
+            max_tokens=100
+        )
+
+        reconstruida = response.choices[0].message.content.strip()
+        logger.info(f"Pregunta reconstruida: {reconstruida}")
+        return reconstruida
+
+    except Exception as e:
+        logger.error(f"Error en analyze_question: {e}")
+        return "No se pudo analizar la pregunta."
+      
+        
+        
+        
         
 def generate_banner_html_whit_intereses(cliente_id):
     try:
@@ -321,9 +369,31 @@ def initialize():
         logger.error(f"Error in /initialize: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
     
+@app.route('/reload-embeddings', methods=['POST'])
+def reload_embeddings():
+    try:
+        embeddings = Embeddings()
+        embeddings.rebuild_embeddings()
+        Productos_promos_categorias  = embeddings.get_all_embeddings_as_text()
+           
+        return jsonify({
+            "status": "success",
+            "message": "Embeddings recargados correctamente",
+            "docuemntos": Productos_promos_categorias
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en /reload-embeddings: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"Error al recargar los embeddings: {str(e)}"
+        }), 500
+ 
     
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    embedings = Embeddings()
+    embedings.initialize()
     # Obtener datos del mensaje
     from_number = request.form.get('From')
     body = request.form.get('Body')
@@ -345,15 +415,23 @@ def webhook():
         get_converzacion_id = mensajeria.get_conversacion_id(cliente_id)
         
         historial_texto = mensajeria.obtener_historial_conversacion(conversacion_id=get_converzacion_id)
-        
+        #logger.info(f"historial de converzacion : {historial_texto}")
         mensajeria.store_message(
             conversation_id=get_converzacion_id,
             requestfull= requestt
             )
         
+        Productos_promos_categorias  = embedings.get_all_embeddings_as_text()
+        #logger.warning(f"documentos de la bd : {Productos_promos_categorias}")
+        
+        newquestion = analyze_question( question=body, historial_texto= historial_texto)
+        logger.warning(f"nueva pregunta segun el contexto  : {newquestion}")
+        
         respuesta_ia =generate_response_ia(
-            question=body ,
-            historial_texto= historial_texto
+            
+            question=newquestion ,
+            historial_texto= historial_texto,
+            productospromcat=Productos_promos_categorias
             )
         
         if respuesta_ia:

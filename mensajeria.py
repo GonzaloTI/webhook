@@ -95,16 +95,16 @@ class Mensajeria:
                 WHERE conversacion_id = %s
                 AND contenido_texto IS NOT NULL
                 AND tipo IN ('text', 'ia')
-                ORDER BY id ASC
+                ORDER BY id DESC
             """, (conversacion_id,))
             historial = cursor.fetchall()
 
             historial_texto = "\n".join([
-                f"cliente texto: '{fila[1]}'" if fila[0] == "text" else f"respuesta ia: '{fila[1]}'"
+                f"Pregunta del cliente : '{fila[1]}'" if fila[0] == "text" else f"respuesta ia: '{fila[1]}'"
                 for fila in historial if fila[1]
             ])
 
-            #logger.info("Historial de conversación:\n%s", historial_texto)
+            logger.info("Historial de conversación:\n%s", historial_texto)
             return historial_texto
 
         except Exception as e:
