@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 import os
 import logging
 from openai import OpenAI
+import cloudinary
+import cloudinary.uploader
 
 from embedings import Embeddings
 from mensajeria import Mensajeria
@@ -36,6 +38,11 @@ client = Client(os.getenv('TWILIO_ACCOUNT_SID'), os.getenv('TWILIO_AUTH_TOKEN'))
 
 mensajeria = Mensajeria()
 
+cloudinary.config(
+    cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
+    api_key=os.getenv('CLOUDINARY_API_KEY'),
+    api_secret=os.getenv('CLOUDINARY_API_SECRET')
+)
 def generate_response_ia(question,historial_texto,productospromcat):
     
     try:
@@ -550,7 +557,8 @@ def webhook():
             )
         
         response = MessagingResponse()
-        response.message(f"Hola, recibimos tu mensaje: {respuesta_ia} , Conversacion id: {get_converzacion_id}")
+        #response.message(f"Hola, recibimos tu mensaje: {respuesta_ia} , Conversacion id: {get_converzacion_id}")
+        response.message("{respuesta_ia}")
         response_text = (
                             f"Hola\n\n"
                             f"Recibimos tu mensaje :\n\n"
@@ -617,6 +625,78 @@ def generate_pdf():
 
     except Exception as e:
         return jsonify({"error trycatch": str(e)}), 500
+
+
+@app.route('/generatepdfpersonalwhitenvio', methods=['POST'])
+def generatepdfpersonalwhitenvio():
+    try:
+        data = request.get_json()
+        numero = data.get("numero")
+
+        if not numero:
+            return jsonify({"error": "Faltan campos requeridos"}), 400
+
+        cliente_id = mensajeria.get_or_create_cliente_id(numero)
+        html = generate_banner_html_whit_intereses(cliente_id)
+
+        # Generar el PDF con PDFShift
+        try:
+            response = requests.post(
+                'https://api.pdfshift.io/v3/convert/pdf',
+                headers={'X-API-Key': PDFSHIFT_API_KEY},
+                json={
+                    'source': html,
+                    "landscape": False,
+                    "use_print": False
+                }
+            )
+            response.raise_for_status()
+        except Exception as pdf_error:
+            logger.error(f"Error generando PDF con PDFShift: {pdf_error}")
+            return jsonify({"error": "No se pudo generar el PDF. Intenta más tarde."}), 500
+
+        # Subir PDF a Cloudinary
+        try:
+            upload_result = cloudinary.uploader.upload_large(
+                file=response.content,
+                resource_type="raw",
+                public_id=f"banner_pdf_{numero}"
+            )
+            media_url = upload_result["secure_url"]
+        except Exception as cloudinary_error:
+            logger.error(f"Error subiendo PDF a Cloudinary: {cloudinary_error}")
+            return jsonify({"error": "Error al subir el PDF generado. Intenta más tarde."}), 500
+
+        # Enviar mensaje WhatsApp con el PDF
+        to_number = f"whatsapp:{numero}"
+        from_number = f"whatsapp:{os.getenv('TWILIO_SANDBOX_NUMBER')}"
+
+        try:
+            message = client.messages.create(
+                body="¡Aquí está tu banner personalizado en PDF!",
+                from_=from_number,
+                to=to_number,
+                media_url=[media_url]
+            )
+        except Exception as twilio_error:
+            logger.error(f"Error enviando PDF por WhatsApp: {twilio_error}")
+            return jsonify({"error": "El PDF fue generado pero no se pudo enviar por WhatsApp."}), 500
+
+        # Guardar en la BD solo si todo fue exitoso
+        mensajeria.store_message(
+            conversation_id=to_number,
+            message_type='outgoing',
+            content_text='Se envió el PDF personalizado por WhatsApp',
+        )
+
+        return jsonify({'status': 'PDF generado y enviado por WhatsApp', 'sid': message.sid}), 200
+
+    except Exception as e:
+        logger.error(f"Error general en /generatepdfpersonalwhitenvio: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+
 
 
     
