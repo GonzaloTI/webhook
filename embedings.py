@@ -132,6 +132,33 @@ class Embeddings:
         except Exception as e:
             logger.error(f"Error al obtener todos los embeddings como texto: {e}")
             return ""
+    
+    def get_all_documents_with_metadata(self) -> List[dict]:
+        if not self.vectorstore:
+            raise ValueError("Vector store not initialized. Call initialize() first.")
+
+        try:
+            stored_data = self.vectorstore.get(include=["documents", "metadatas"])
+            docs: List[str] = stored_data["documents"]
+            metadatas: List[dict] = stored_data["metadatas"]
+
+            resultado = []
+
+            for doc, metadata in zip(docs, metadatas):
+                resultado.append({
+                    "documento": doc,
+                    "metadata": metadata
+                })
+
+            return resultado
+
+        except Exception as e:
+            logger.error(f"Error al obtener documentos con metadata: {e}")
+            return []
+
+        
+        
+    
     def rebuild_embeddings(self) -> None:
       
         logger.info("Reconstruyendo embeddings ")

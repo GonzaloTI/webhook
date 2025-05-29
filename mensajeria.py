@@ -49,6 +49,22 @@ class Mensajeria:
         finally:
             cursor.close()
 
+    def insertar_interes(self, cliente_id, producto_id=None, promocion_id=None, categoria_id=None, nivel=0):
+        conn = self.get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO interes (cliente_id, producto_id, promocion_id, categoria_id, nivel)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (cliente_id, producto_id, promocion_id, categoria_id, nivel))
+            conn.commit()
+            logger.info("Interés insertado correctamente.")
+        except Exception as e:
+            logger.error(f"Error al insertar interés: {e}")
+            conn.rollback()
+        finally:
+            cursor.close()
+            
     def get_conversacion_id(self, cliente_id):
         conn = self.get_db_connection()
         cursor = conn.cursor()

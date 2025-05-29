@@ -1,6 +1,6 @@
 import requests
 from twilio.rest import Client
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, json, jsonify, request
 import psycopg2
 from twilio.twiml.messaging_response import MessagingResponse
 from dotenv import load_dotenv
@@ -389,6 +389,115 @@ def reload_embeddings():
             "message": f"Error al recargar los embeddings: {str(e)}"
         }), 500
  
+def analizarintenciones(historial_texto, Json_productos_promos_categorias, cliente_id):
+    try:
+        productos_str = "\n".join([
+            ",".join(
+                [f"Producto: {item.get('documento', '')}"] +
+                [f"{k.capitalize()}: {v}" for k, v in item.get('metadata', {}).items()]
+            )
+            for item in Json_productos_promos_categorias
+        ])
+        logger.info(f"string para productosstr: {productos_str}")
+
+        prompt_sistema = """
+        Eres un asistente de análisis de intención en ventas de gafas.
+        Recibes un historial de conversación con un catálogo de productos.
+        Tu tarea es deducir a qué producto o intención se refiere el cliente.
+        Responde con un JSON sin explicaciones.
+        """
+
+        prompt_usuario = f"""
+        Historial de conversación:
+        {historial_texto}
+
+        Catálogo de productos:
+        {productos_str}
+
+        Responde con un JSON que contenga un array de intereses detectados, donde cada interés debe incluir:
+        - tipo: "producto", "categoria" o "promocion"
+        - id_metadata: el id dentro del metadata
+        - nivel_de_interes: entre 0 y 100
+        
+        Ejemplo de formato:
+        {{
+            "interes": [
+                {{"tipo": "producto", "id_metadata": 5, "nivel_interes": 55}},
+                {{"tipo": "producto", "id_metadata": 2, "nivel_interes": 90}}
+            ]
+        }}
+        Solo responde con el JSON.
+        """
+
+        response = client_opneai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": prompt_sistema},
+                {"role": "user", "content": prompt_usuario},
+            ],
+            temperature=0.4,
+            max_tokens=500
+        )
+
+        resultado_texto = response.choices[0].message.content.strip()
+        resultado_json = json.loads(resultado_texto)  # ← Este paso es clave
+        return resultado_json
+
+    except Exception as e:
+        logger.error(f"Error en analizarintenciones(): {e}")
+        return {"interes": []}  # Devolver un dict vacío por consistencia
+
+ 
+@app.route('/analizarintenciones', methods=['POST'])
+def analizar_intenciones():
+    try:
+        embeddings = Embeddings()
+        embeddings.initialize()
+
+        from_number = request.form.get('From')
+        if not from_number:
+            return jsonify({"status": "error", "message": "Número no proporcionado"}), 400
+
+        numero = from_number.replace('whatsapp:', '')
+     
+        cliente_id = mensajeria.get_or_create_cliente_id(numero)
+        conversacion_id = mensajeria.get_conversacion_id(cliente_id)
+        historial_texto = mensajeria.obtener_historial_conversacion(conversacion_id=conversacion_id)
+      
+        Json_productos_promos_categorias = embeddings.get_all_documents_with_metadata()
+     
+        resultanalisis  = analizarintenciones( historial_texto,Json_productos_promos_categorias, cliente_id)
+        
+        for interes in resultanalisis.get("interes", []):
+            tipo = interes.get("tipo")
+            id_metadata = interes.get("id_metadata")
+            nivel = interes.get("nivel_interes")
+            # Asignar ID según tipo
+            producto_id = id_metadata if tipo == "producto" else None
+            promocion_id = id_metadata if tipo == "promocion" else None
+            categoria_id = id_metadata if tipo == "categoria" else None
+
+            # Insertar en la tabla de interés
+            mensajeria.insertar_interes(
+                cliente_id=cliente_id,
+                producto_id=producto_id,
+                promocion_id=promocion_id,
+                categoria_id=categoria_id,
+                nivel=nivel
+            )       
+        return jsonify({
+            "status": "success",
+            "cliente_id": cliente_id,
+            "conversacion_id": conversacion_id,
+            "analisis" : resultanalisis
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en /analizarintenciones: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+ 
+ 
     
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -440,8 +549,8 @@ def webhook():
                 response_ia=respuesta_ia
             )
         
-        #response = MessagingResponse()
-        #response.message(f"Hola, recibimos tu mensaje: {respuesta_ia} , Conversacion id: {get_converzacion_id}")
+        response = MessagingResponse()
+        response.message(f"Hola, recibimos tu mensaje: {respuesta_ia} , Conversacion id: {get_converzacion_id}")
         response_text = (
                             f"Hola\n\n"
                             f"Recibimos tu mensaje :\n\n"
