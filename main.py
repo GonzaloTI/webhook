@@ -657,11 +657,18 @@ def generatepdfpersonalwhitenvio():
 
         # Subir PDF a Cloudinary
         try:
+          # Guardar PDF en archivo temporal
+            temp_pdf_path = f"/tmp/banner_{numero}.pdf"
+            with open(temp_pdf_path, "wb") as f:
+                f.write(response.content)
+
+            # Subir archivo a Cloudinary desde el path
             upload_result = cloudinary.uploader.upload_large(
-                file=response.content,
+                temp_pdf_path,
                 resource_type="raw",
                 public_id=f"banner_pdf_{numero}"
             )
+
             media_url = upload_result["secure_url"]
         except Exception as cloudinary_error:
             logger.error(f"Error subiendo PDF a Cloudinary: {cloudinary_error}")
@@ -682,12 +689,19 @@ def generatepdfpersonalwhitenvio():
             logger.error(f"Error enviando PDF por WhatsApp: {twilio_error}")
             return jsonify({"error": "El PDF fue generado pero no se pudo enviar por WhatsApp."}), 500
 
+        # Obtener conversation_id REAL
+        numero_sin_prefijo = to_number 
+        cliente_id = mensajeria.get_or_create_cliente_id(numero_sin_prefijo)
+        conversacion_id = mensajeria.get_conversacion_id(cliente_id)
+
         # Guardar en la BD solo si todo fue exitoso
-        mensajeria.store_message(
-            conversation_id=to_number,
-            message_type='outgoing',
-            content_text='Se envió el PDF personalizado por WhatsApp',
-        )
+        mensajeria.store_outgoing_message(
+                conversation_id=conversacion_id,
+                content_text='Se envió el PDF personalizado por WhatsApp',
+                media_url=media_url,
+                media_mimetype='application/pdf',
+                media_filename=f"banner_pdf_{numero}.pdf"
+            )
 
         return jsonify({'status': 'PDF generado y enviado por WhatsApp', 'sid': message.sid}), 200
 
@@ -764,11 +778,15 @@ def send_message():
         logger.info(f"Mensaje enviado a {to_number}: {message_body}")
 
         # Guardar en la base de datos
-        mensajeria.store_message(
-            conversation_id=to_number,
-            message_type='outgoing',
+        numero = to_number.replace('whatsapp:', '')  
+        cliente_id = mensajeria.get_or_create_cliente_id(numero)
+        conversacion_id = mensajeria.get_conversacion_id(cliente_id)
+
+        mensajeria.store_outgoing_message(
+            conversation_id=conversacion_id,
             content_text=message_body
         )
+
 
         return jsonify({'status': 'Mensaje enviado', 'sid': message.sid}), 200
 

@@ -196,3 +196,31 @@ class Mensajeria:
     def close(self):
         if self.conn:
             self.conn.close()
+    def store_outgoing_message(self, conversation_id, content_text, media_url=None, media_mimetype=None, media_filename=None):
+        conn = self.get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO mensaje (
+                    tipo, contenido_texto, media_url, media_mimetype,
+                    media_filename, conversacion_id
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    "outgoing",
+                    content_text,
+                    media_url,
+                    media_mimetype,
+                    media_filename,
+                    conversation_id
+                )
+            )
+            conn.commit()
+            logger.info("Mensaje saliente guardado en la base de datos")
+        except Exception as e:
+            logger.error(f"Error guardando mensaje saliente: {e}")
+            conn.rollback()
+        finally:
+            cursor.close()
+
