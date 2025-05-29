@@ -6,3 +6,11 @@ psycopg2-binary
 gunicorn 
 requests
 
+langchain>=0.0.267
+langchain-community>=0.0.10
+langchain-core>=0.0.10
+langchain-text-splitters>=0.0.1
+langchain-chroma>=0.0.1
+langchain-openai>=0.0.1
+
+chromadb>=0.4.6
