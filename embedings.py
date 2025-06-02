@@ -25,14 +25,15 @@ class Embeddings:
         self.embedding_data: List[Dict[str, Any]] = []
         self.vectorstore = None
         self.mensajeria = Mensajeria()
-
-    def load_documents(self) -> List[Document]:
         
+    def load_documents(self) -> List[Document]:
         try:
             conn = self.mensajeria.get_db_connection()
             cursor = conn.cursor()
 
-            # Consulta para obtener el producto con su precio más reciente
+            documents = []
+
+            # Productos con precio más reciente
             cursor.execute("""
                 SELECT p.id, p.nombre, p.descripcion, pr.valor
                 FROM producto p
@@ -46,27 +47,90 @@ class Embeddings:
             """)
 
             rows = cursor.fetchall()
-            documents = [
-                Document(
+            for row in rows:
+                documents.append(Document(
                     page_content=f"Producto: {row[1]}, Descripción: {row[2]}, Precio: {row[3] if row[3] is not None else 'N/A'}",
                     metadata={
+                        "tipo": "producto",
                         "id": str(row[0]),
                         "nombre": row[1],
                         "descripcion": row[2],
                         "precio": float(row[3]) if row[3] is not None else None
                     }
-                )
-                for row in rows
-            ]
+                ))
+
+            # Categorías
+            cursor.execute("""
+                SELECT id, nombre, descripcion
+                FROM categoria
+            """)
+
+            rows = cursor.fetchall()
+            for row in rows:
+                documents.append(Document(
+                    page_content=f"Categoría: {row[1]}, Descripción: {row[2]}",
+                    metadata={
+                        "tipo": "categoria",
+                        "id": str(row[0]),
+                        "nombre": row[1],
+                        "descripcion": row[2]
+                    }
+                ))
+
+            # Promociones con productos
+            cursor.execute("""
+                SELECT pr.id, pr.nombre, pr.descripcion, pr.fecha_inicio, pr.fecha_fin,
+                       p.id as producto_id, p.nombre, p.descripcion, pp.descuento_porcentaje
+                FROM promocion pr
+                LEFT JOIN promo_producto pp ON pr.id = pp.promocion_id
+                LEFT JOIN producto p ON pp.producto_id = p.id
+            """)
+
+            rows = cursor.fetchall()
+            promociones_dict = {}
+
+            for row in rows:
+                promo_id = row[0]
+                if promo_id not in promociones_dict:
+                    promociones_dict[promo_id] = {
+                        "nombre": row[1],
+                        "descripcion": row[2],
+                        "fecha_inicio": row[3],
+                        "fecha_fin": row[4],
+                        "productos": []
+                    }
+                if row[5]:  # id del producto
+                    promociones_dict[promo_id]["productos"].append(
+                        f"ID: {row[5]}, Producto: {row[6]}, Descripción: {row[7]}, Descuento: {row[8]}%"
+                    )
+
+            for promo_id, promo_data in promociones_dict.items():
+                productos_texto = "\n".join(promo_data["productos"])
+                contenido = f"Promoción: {promo_data['nombre']}, Descripción: {promo_data['descripcion']}, Vigencia: {promo_data['fecha_inicio']} a {promo_data['fecha_fin']}"
+                if productos_texto:
+                    contenido += f"\nProductos incluidos:\n{productos_texto}"
+
+                documents.append(Document(
+                    page_content=contenido,
+                    metadata={
+                        "tipo": "promocion",
+                        "id": str(promo_id),
+                        "nombre": promo_data['nombre'],
+                        "descripcion": promo_data['descripcion'],
+                        "fecha_inicio": str(promo_data['fecha_inicio']),
+                        "fecha_fin": str(promo_data['fecha_fin'])
+                    }
+                ))
 
             cursor.close()
             conn.close()
-            logger.info(f"Se cargaron {len(documents)} documentos desde la base de datos con precios")
+            logger.info(f"Se cargaron {len(documents)} documentos desde la base de datos con precios, categorías y promociones")
             return documents
 
         except Exception as e:
             logger.error(f"Error al cargar documentos: {e}")
             return []
+
 
 
     def initialize(self) -> None:

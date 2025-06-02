@@ -49,14 +49,14 @@ class Mensajeria:
         finally:
             cursor.close()
 
-    def insertar_interes(self, cliente_id, producto_id=None, promocion_id=None, categoria_id=None, nivel=0):
+    def insertar_interes(self, cliente_id, producto_id=None, promocion_id=None, categoria_id=None, conversacion_id=None, nivel=0):
         conn = self.get_db_connection()
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                INSERT INTO interes (cliente_id, producto_id, promocion_id, categoria_id, nivel)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (cliente_id, producto_id, promocion_id, categoria_id, nivel))
+                INSERT INTO interes (cliente_id, producto_id, promocion_id, categoria_id, nivel, conversacion_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (cliente_id, producto_id, promocion_id, categoria_id, nivel, conversacion_id))
             conn.commit()
             logger.info("Interés insertado correctamente.")
         except Exception as e:
@@ -64,6 +64,8 @@ class Mensajeria:
             conn.rollback()
         finally:
             cursor.close()
+            conn.close()
+
             
     def get_conversacion_id(self, cliente_id):
         conn = self.get_db_connection()
@@ -100,6 +102,7 @@ class Mensajeria:
             return None
         finally:
             cursor.close()
+
     def obtener_historial_conversacion(self,conversacion_id):
         conn = self.get_db_connection()
         cursor = conn.cursor()
@@ -126,6 +129,50 @@ class Mensajeria:
         except Exception as e:
             logger.error(f"Error al obtener historial: {e}")
             return ""
+        finally:
+            cursor.close()
+            conn.close()
+    def get_conversaciones_no_procesadas(self, cliente_id):
+        conn = self.get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT id FROM conversacion
+                WHERE cliente_id = %s AND fecha = %s
+                AND procesado = FALSE
+                ORDER BY id DESC 
+                """,
+                (cliente_id, date.today())
+            )
+            resultados = cursor.fetchall()
+            ids = [fila[0] for fila in resultados]
+            return ids  # Lista de IDs
+        except Exception as e:
+            logger.error(f"Error al obtener conversaciones no procesadas: {e}")
+            conn.rollback()
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+            
+    def marcar_conversacion_como_procesada(self, conversacion_id: int):
+        conn = self.get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                UPDATE conversacion
+                SET procesado = TRUE
+                WHERE id = %s
+                """,
+                (conversacion_id,)
+            )
+            conn.commit()
+            logger.info(f"Conversación {conversacion_id} marcada como procesada.")
+        except Exception as e:
+            logger.error(f"Error al marcar conversación como procesada: {e}")
+            conn.rollback()
         finally:
             cursor.close()
             conn.close()

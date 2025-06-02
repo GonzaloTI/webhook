@@ -11,6 +11,7 @@ import cloudinary
 import cloudinary.uploader
 
 from embedings import Embeddings
+from generatehtml import GenerateHTML
 from mensajeria import Mensajeria
 
 
@@ -20,6 +21,7 @@ client_opneai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 PDFSHIFT_API_KEY = os.getenv("PDFSHIFT_API_KEY")
 
+SCREENSHOTONE_API_KEY = os.getenv("SCREENSHOTONE_API_KEY")
 
 app = Flask(__name__)
 
@@ -321,7 +323,7 @@ def generate_banner_html(nombre, numero, preferencias):
             Generar un HTML de banner publicitario dirigido a un cliente llamado **{nombre}**, con número de contacto **{numero}**, y con las siguientes preferencias: **{preferencias}**.
 
             ✅ Requisitos:
-            - El HTML debe ser compatible con PDFShift.
+            
             - Usa Bootstrap desde un CDN para aplicar estilos. Incluye este enlace en el <head>:
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
             - Usa clases de Bootstrap para los estilos (no uses CSS personalizado ni <style>).
@@ -355,7 +357,7 @@ def generate_banner_html(nombre, numero, preferencias):
         )
 
         html_result = response.choices[0].message.content
-        logger.info(f"HTML generado para {nombre}: {html_result[:80]}...")  # Log parcial
+        logger.info(f"{html_result[:80]}")  # Log parcial
         return html_result
 
     except Exception as e:
@@ -404,12 +406,34 @@ def analizarintenciones(historial_texto, Json_productos_promos_categorias, clien
                 [f"{k.capitalize()}: {v}" for k, v in item.get('metadata', {}).items()]
             )
             for item in Json_productos_promos_categorias
+            if item.get('metadata', {}).get("tipo") == "producto"
         ])
-        logger.info(f"string para productosstr: {productos_str}")
+
+        categorias_str = "\n".join([
+            ",".join(
+                [f"Categoría: {item.get('documento', '')}"] +
+                [f"{k.capitalize()}: {v}" for k, v in item.get('metadata', {}).items()]
+            )
+            for item in Json_productos_promos_categorias
+            if item.get('metadata', {}).get("tipo") == "categoria"
+        ])
+
+        promociones_str = "\n".join([
+            ",".join(
+                [f"Promoción: {item.get('documento', '')}"] +
+                [f"{k.capitalize()}: {v}" for k, v in item.get('metadata', {}).items()]
+            )
+            for item in Json_productos_promos_categorias
+            if item.get('metadata', {}).get("tipo") == "promocion"
+        ])
+
+        logger.info(f"string para productos_str: {productos_str}")
+        logger.info(f"string para categorias_str: {categorias_str}")
+        logger.info(f"string para promociones_str: {promociones_str}")
 
         prompt_sistema = """
         Eres un asistente de análisis de intención en ventas de gafas.
-        Recibes un historial de conversación con un catálogo de productos.
+        Recibes un historial de conversación con un catálogo de productos , categorias y promociones(con su lista de productos).
         Tu tarea es deducir a qué producto o intención se refiere el cliente.
         Responde con un JSON sin explicaciones.
         """
@@ -420,6 +444,14 @@ def analizarintenciones(historial_texto, Json_productos_promos_categorias, clien
 
         Catálogo de productos:
         {productos_str}
+        
+        
+        Catalogo de categorias
+        {categorias_str}
+        
+        Catalogo de promociones
+        si el producto existe en la promocion, incluir la promocion igual.
+        {promociones_str}
 
         Responde con un JSON que contenga un array de intereses detectados, donde cada interés debe incluir:
         - tipo: "producto", "categoria" o "promocion"
@@ -457,6 +489,7 @@ def analizarintenciones(historial_texto, Json_productos_promos_categorias, clien
  
 @app.route('/analizarintenciones', methods=['POST'])
 def analizar_intenciones():
+    resultanalisis = []
     try:
         embeddings = Embeddings()
         embeddings.initialize()
@@ -468,34 +501,46 @@ def analizar_intenciones():
         numero = from_number.replace('whatsapp:', '')
      
         cliente_id = mensajeria.get_or_create_cliente_id(numero)
-        conversacion_id = mensajeria.get_conversacion_id(cliente_id)
-        historial_texto = mensajeria.obtener_historial_conversacion(conversacion_id=conversacion_id)
-      
         Json_productos_promos_categorias = embeddings.get_all_documents_with_metadata()
-     
-        resultanalisis  = analizarintenciones( historial_texto,Json_productos_promos_categorias, cliente_id)
         
-        for interes in resultanalisis.get("interes", []):
-            tipo = interes.get("tipo")
-            id_metadata = interes.get("id_metadata")
-            nivel = interes.get("nivel_interes")
-            # Asignar ID según tipo
-            producto_id = id_metadata if tipo == "producto" else None
-            promocion_id = id_metadata if tipo == "promocion" else None
-            categoria_id = id_metadata if tipo == "categoria" else None
+        conversaciones_ids = mensajeria.get_conversaciones_no_procesadas(cliente_id)
+        logger.error(f"converzaciones no proc. : {conversaciones_ids}")
+        
+        resultados_analisis = []
 
-            # Insertar en la tabla de interés
-            mensajeria.insertar_interes(
-                cliente_id=cliente_id,
-                producto_id=producto_id,
-                promocion_id=promocion_id,
-                categoria_id=categoria_id,
-                nivel=nivel
-            )       
+        for conversacion_id in conversaciones_ids:
+            logger.warning(f"Procesando conversación ID: {conversacion_id}") 
+            historial_texto = mensajeria.obtener_historial_conversacion(conversacion_id=conversacion_id)
+
+            resultanalisis = analizarintenciones(historial_texto, Json_productos_promos_categorias, cliente_id)
+            resultados_analisis.append({
+                "conversacion_id": conversacion_id,
+                "analisis": resultanalisis
+            })
+
+            for interes in resultanalisis.get("interes", []):
+                tipo = interes.get("tipo")
+                id_metadata = interes.get("id_metadata")
+                nivel = interes.get("nivel_interes")
+
+                producto_id = id_metadata if tipo == "producto" else None
+                promocion_id = id_metadata if tipo == "promocion" else None
+                categoria_id = id_metadata if tipo == "categoria" else None
+
+                mensajeria.insertar_interes(
+                    cliente_id=cliente_id,
+                    producto_id=producto_id,
+                    promocion_id=promocion_id,
+                    categoria_id=categoria_id,
+                    conversacion_id=conversacion_id,
+                    nivel=nivel
+                )  
+            mensajeria.marcar_conversacion_como_procesada(conversacion_id)
+            
         return jsonify({
             "status": "success",
             "cliente_id": cliente_id,
-            "conversacion_id": conversacion_id,
+            "conversaciones_ids": conversaciones_ids,
             "analisis" : resultanalisis
         }), 200
 
@@ -626,6 +671,58 @@ def generate_pdf():
     except Exception as e:
         return jsonify({"error trycatch": str(e)}), 500
 
+@app.route('/generatepdf2', methods=['POST'])
+def generate_pdf2():
+    try:
+        data = request.get_json()
+        if data is None:
+            return jsonify({"error": "JSON inválido o Content-Type incorrecto"}), 400
+
+        nombre = data.get("nombre")
+        numero = data.get("numero")
+
+        if not all([nombre, numero]):
+            return jsonify({"error": "Faltan campos requeridos"}), 400
+        
+        
+
+        #html = generate_banner_html(nombre, numero, preferencias)
+        generador = GenerateHTML(
+            nombre="Carlos",
+            productos=[
+                {"nombre": "Zapatos deportivos", "descripcion": "Cómodos y livianos", "precio": 49.99},
+                {"nombre": "Mochila impermeable", "descripcion": "Ideal para viajes", "precio": 29.50}
+            ],
+            categorias=["Ropa deportiva", "Accesorios de viaje"],
+            promociones=["20% en la segunda unidad", "Envío gratis por compras mayores a $100"]
+        )
+
+        html_resultado = generador.generate_banner()
+
+        # Llamada a ScreenshotOne con contenido HTML
+        screenshot_response = requests.get(
+            "https://api.screenshotone.com/take",
+            params={
+                "access_key": SCREENSHOTONE_API_KEY,
+                "html": html_resultado,
+                "full_page": "true",
+                "format": "jpeg"
+            }
+        )
+
+        screenshot_response.raise_for_status()
+
+        return (
+            screenshot_response.content,
+            200,
+            {
+                'Content-Type': 'image/jpeg',
+                'Content-Disposition': 'inline; filename="banner.jpg"'
+            }
+        )
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/generatepdfpersonalwhitenvio', methods=['POST'])
 def generatepdfpersonalwhitenvio():
