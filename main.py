@@ -667,10 +667,13 @@ def generateimagepersonalwithemail():
             return jsonify({"error": "Número, nombre o correo faltante"}), 400
 
         cliente_id = mensajeria.get_or_create_cliente_id(numero)
-        json_data = generate_banner_data_with_intereses(cliente_id)
+        json = generate_banner_data_with_intereses(cliente_id)
+        
+        if not json.get("intereses"):
+            return jsonify({"error": "No hay intereses disponibles para generar el banner."}), 400
 
         html = GenerateHTML(nombre=nombre)
-        html_result = html.generate_banner(json_data)
+        html_result = html.generate_banner(json)
 
         screenshot_response = requests.get(
             "https://api.screenshotone.com/take",
@@ -728,6 +731,7 @@ def generateimagepersonalwithemail():
             media_mimetype="image/jpeg",
             media_filename=f"banner_{numero}.jpg"
         )
+        mensajeria.marcar_interes_como_procesado(cliente_id=cliente_id, medio="correo,twilio")
 
         return jsonify({'status': 'Imagen enviada correctamente por correo'}), 200
 
