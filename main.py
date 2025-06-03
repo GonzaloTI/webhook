@@ -566,8 +566,8 @@ def webhook():
         #response.message(f"Hola, recibimos tu mensaje: {respuesta_ia} , Conversacion id: {get_converzacion_id}")
         response.message("{respuesta_ia}")
         response_text = (
-                            f"Hola\n\n"
-                            f"Recibimos tu mensaje :\n\n"
+                         #   f"Hola\n\n"
+                          #  f"Recibimos tu mensaje :\n\n"
                             f"{respuesta_ia}\n\n"
                             f"🆔 Conversación ID: {get_converzacion_id}"
                         )
