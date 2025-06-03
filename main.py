@@ -60,19 +60,35 @@ def generate_response_ia(question,historial_texto,productospromcat):
         system_prompt = """
             Eres un asistente de ventas de gafas se lo mas corto posible con la respuesta no inventes nada.
 
-            Normas:
-            - Usa lenguaje útil, claro y amigable.
+            Reglas:
+            - Usa lenguaje simple, claro y amigable.
             - Responde en párrafos con saltos de línea para mejorar la legibilidad.
             - Si mencionas varios productos, usa listas con guiones.
             - No inventes productos ni características: responde solo con base en el catálogo proporcionado.
             - Si el mensaje es solo un saludo o una pregunta general, no menciones productos.
             - Usa el historial de conversación para mantener el contexto si es necesario.
-            - sigue el contexto, ve si la pregunta anterior tiene que ver con la actual , si las preguntas anteriores se refieren a algun producto o promocion , reconoce que el nuevo ensaje esta relacionado con el anterior y basa tu respuesta en eso
-            """
+              Eres un asistente de ventas especializado en gafas. Tu trabajo es responder de forma breve, clara y útil, sin inventar productos ni información.
 
+            - Si mencionas productos, apóyate 100% en el catálogo proporcionado.
+            - Mantén el contexto según el historial de conversación.
+            - Si hay continuidad (por ejemplo: "y esas?", "cuánto cuestan?"), interpreta el contexto anterior.
+            - Si el mensaje es genérico (ej: "hola", "buenas tardes"), responde cordialmente pero sin ofrecer productos.
+
+            Solo responde si entiendes el contexto. Si no hay suficiente contexto, pide más información de forma cordial.
+            """
+        historial_conversacional=""    
+            
+        historial_lista = json.loads(historial_texto)
+
+        # Luego haces el bucle normalmente
+        for mensaje in historial_lista[::-1]:
+            if mensaje["rol"] == "cliente":
+                historial_conversacional += f"Cliente: {mensaje['contenido']}\n"
+            else:
+                historial_conversacional += f"Asistente: {mensaje['contenido']}\n"
         user_prompt = f"""
             Contexto del cliente- historial de la conversación:
-            {historial_texto}
+            {historial_conversacional}
 
             Catálogo de productos:
             {productospromcat}
@@ -106,29 +122,58 @@ def generate_response_ia(question,historial_texto,productospromcat):
         
 def analyze_question(question: str, historial_texto: str) -> str:
     try:
+        
+        historial_lista = json.loads(historial_texto)
+
+        # Reordenamos: del más antiguo al más reciente
+        historial_ordenado = historial_lista[::-1]
+
+        # Formateamos el historial para el prompt
+        historial_formateado = ""
+        for mensaje in historial_ordenado:
+            if mensaje["rol"] == "cliente":
+                historial_formateado += f"Cliente: {mensaje['contenido']}\n"
+            else:
+                historial_formateado += f"Asistente: {mensaje['contenido']}\n"
+                
+        
         system_prompt = """
-            -eres un analista para conmpletar mensaje o pregunta , basandote en el historial de la converzacion
-            -si no hay nada en el historial devueves lo mismo que esta en "Nueva pregunta del cliente:"
-           -si ves que si tiene relacion con la pregunta mas reciente hecha por el cliente concatenala y arma denuevo el mensaje o pregunta
-           - si es algo fuera de contexto, solo devuelve lo mismo que esta en "Nueva pregunta del cliente:"
-           - solo devueleve el mensaje reformulado, nada mas 
+           Eres un reformulador de preguntas de cliente. Tu única tarea es reescribir la pregunta más reciente del cliente, basándote en el historial de conversación, si es necesario.
+
+            Instrucciones estrictas:
+            - No eres el asistente ni debes responder.
+            - Si la pregunta es clara o no tiene relación con el historial, devuélvela sin modificar.
+              - cuando es un saludo(hola, que tal, etc) o algo que no tiene que ver, solo devuelve lo mismo.
+            - Si es ambigua ("¿y cuánto cuesta?", "¿dónde?", etc.), usa el historial para completar el contexto.
+            - Nunca reescribas como si fueras la IA o con frases como "Te interesa..." o "Nuestro catálogo tiene...".
+            - Devuelve **solo** la pregunta reformulada tal como la diría un cliente, no una respuesta.
+            - NO agregues información, no digas "nosotros", ni menciones productos que no fueron mencionados antes.
             """
+
         user_prompt = f"""
         
-            Nueva pregunta del cliente:
-                {question}
+        Historial (del más antiguo al más reciente):
+            {historial_formateado}
             
-        
-            Historial de conversación dividido por quien lo dijo [ cliente o la IA]:
-            la primeras  del historial son la mas recientes .
-            Historial:
-            {historial_texto}
-            ---aqui termina el historial------
-                
             
-            importante : Devuelve solo la pregunta reconstruida acorde al historial, sin explicaciones.
+        Nueva pregunta del cliente que se debe reformular segun el historial:
+            {question}
+
             
-            importante , si ves que la pregunta no esta relacionada con el historial devuelva lo mismo que esta en " Nueva pregunta del cliente:"
+            
+            Recuerda: devuelve SOLO la pregunta reformulada, no respondas.
+            
+            IMPORTANTE:
+            - Devuelve solamente la pregunta del cliente reescrita con contexto, como si fuera lo que el cliente quiso decir.
+            - No respondas. No expliques. Solo devuelve la pregunta reformulada.
+            Reglas:
+            - (importante) los menajes que recibes son del cliente hacia el asistente de ventas.
+             - cuando es un saludo(hola, que tal, etc) o algo que no tiene que ver, solo devuelve lo mismo.
+            - Si el historial está vacío o no se relaciona con la pregunta, devuelve exactamente lo que está en "Nueva pregunta del cliente".
+            - Si el nuevo mensaje del cliente es ambigua (por ejemplo: "¿y cuánto cuesta?"), usa el historial para completarla con contexto.
+            - Solo devuelve el menasje reformulado , clara, sin explicaciones ni repeticiones.
+            - Nunca inventes productos ni temas que no se mencionaron antes.
+            
             """
 
         response = client_opneai.chat.completions.create(
@@ -486,7 +531,7 @@ def webhook():
         cliente_id = mensajeria.get_or_create_cliente_id(numero)
         get_converzacion_id = mensajeria.get_conversacion_id(cliente_id)
         
-        historial_texto = mensajeria.obtener_historial_conversacion(conversacion_id=get_converzacion_id)
+        historial_texto = mensajeria.obtener_historial_conversacion(conversacion_id=get_converzacion_id,limite_pares=5)
         #logger.info(f"historial de converzacion : {historial_texto}")
         mensajeria.store_message(
             conversation_id=get_converzacion_id,
@@ -497,7 +542,12 @@ def webhook():
         #logger.warning(f"documentos de la bd : {Productos_promos_categorias}")
         
         newquestion = analyze_question( question=body, historial_texto= historial_texto)
+        
+        #newquestion =body
+        
         logger.warning(f"nueva pregunta segun el contexto  : {newquestion}")
+        
+        #logger.warning(f"todos los embedings para enviarlo a la IA:{Productos_promos_categorias}")
         
         respuesta_ia =generate_response_ia(
             

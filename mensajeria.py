@@ -1,4 +1,5 @@
 import os
+from flask import json
 import psycopg2
 from datetime import date, datetime
 import logging
@@ -103,32 +104,37 @@ class Mensajeria:
         finally:
             cursor.close()
 
-    def obtener_historial_conversacion(self,conversacion_id):
+    def obtener_historial_conversacion(self,conversacion_id, limite_pares=3):
         conn = self.get_db_connection()
         cursor = conn.cursor()
-        historial_texto=""
+        limite_total = limite_pares * 2
+        
         try:
             cursor.execute("""
-                SELECT tipo, contenido_texto
-                FROM mensaje
-                WHERE conversacion_id = %s
-                AND contenido_texto IS NOT NULL
-                AND tipo IN ('text', 'ia')
-                ORDER BY id DESC
-            """, (conversacion_id,))
+            SELECT tipo, contenido_texto
+            FROM mensaje
+            WHERE conversacion_id = %s
+            AND contenido_texto IS NOT NULL
+            AND tipo IN ('text', 'ia')
+            ORDER BY id DESC
+            LIMIT %s
+            """, (conversacion_id, limite_total))
+            
             historial = cursor.fetchall()
 
-            historial_texto = "\n".join([
-                f"Pregunta del cliente : '{fila[1]}'" if fila[0] == "text" else f"respuesta ia: '{fila[1]}'"
-                for fila in historial if fila[1]
-            ])
+            historial_lista = [
+            {"rol": "cliente", "contenido": fila[1]} if fila[0] == "text" else {"rol": "ia", "contenido": fila[1]}
+            for fila in historial
+                            ]
 
-            logger.info("Historial de conversación:\n%s", historial_texto)
-            return historial_texto
+            historial_json_str = json.dumps(historial_lista, ensure_ascii=False, indent=2)
+            logger.info("Historial JSON (reciente a antiguo):\n%s", historial_json_str)
+            return historial_json_str
 
         except Exception as e:
             logger.error(f"Error al obtener historial: {e}")
-            return ""
+            return "[]"
+
         finally:
             cursor.close()
             conn.close()
