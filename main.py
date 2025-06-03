@@ -396,7 +396,15 @@ def analizar_intenciones():
         embeddings = Embeddings()
         embeddings.initialize()
 
-        from_number = request.form.get('From')
+        # Obtener datos desde JSON del cuerpo de la solicitud
+        data = request.get_json()
+
+        if not data or 'From' not in data:
+            return jsonify({"error": "El campo 'From' es requerido"}), 400
+
+        from_number = data['From']
+        
+        #from_number = request.form.get('From')
         
         if not from_number:
             return jsonify({"status": "error", "message": "Número no proporcionado"}), 400
