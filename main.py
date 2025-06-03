@@ -1,3 +1,7 @@
+from datetime import datetime
+from email.message import EmailMessage
+from email.utils import formataddr
+import smtplib
 import requests
 from twilio.rest import Client
 from flask import Flask, Response, json, jsonify, request
@@ -13,6 +17,9 @@ import cloudinary.uploader
 from embedings import Embeddings
 from generatehtml import GenerateHTML
 from mensajeria import Mensajeria
+
+email_user = os.getenv("EMAIL_USER")
+email_pass = os.getenv("EMAIL_PASS")
 
 
 load_dotenv()
@@ -146,11 +153,8 @@ def analyze_question(question: str, historial_texto: str) -> str:
         
         
         
-def generate_banner_html_whit_intereses(cliente_id):
+def generate_banner_data_with_intereses(cliente_id):
     try:
-        import psycopg2
-        import json
-
         conn = mensajeria.get_db_connection()
         cursor = conn.cursor()
 
@@ -169,11 +173,12 @@ def generate_banner_html_whit_intereses(cliente_id):
             LEFT JOIN producto p ON i.producto_id = p.id
             LEFT JOIN imagen img ON p.id = img.producto_id
             LEFT JOIN (
-                SELECT producto_id, valor
+                SELECT DISTINCT ON (producto_id) producto_id, valor
                 FROM precio
-                ORDER BY fecha_inicio DESC
+                ORDER BY producto_id, fecha_inicio DESC
             ) pr ON pr.producto_id = p.id
             WHERE i.cliente_id = %s
+              AND i.procesado = FALSE
             LIMIT 10;
         """, (cliente_id,))
         intereses = cursor.fetchall()
@@ -192,29 +197,29 @@ def generate_banner_html_whit_intereses(cliente_id):
                     "nivel": nivel
                 })
             elif promo_id:
-                
                 cursor.execute("SELECT nombre FROM promocion WHERE id = %s", (promo_id,))
                 promo_data = cursor.fetchone()
                 promo_nombre = promo_data[0] if promo_data else f"Promoción {promo_id}"
 
                 cursor.execute("""
-                    SELECT p.nombre, pr.valor, pp.descuento_porcentaje
+                    SELECT p.nombre, pr.valor, pp.descuento_porcentaje, img.url
                     FROM promo_producto pp
                     JOIN producto p ON pp.producto_id = p.id
+                    LEFT JOIN imagen img ON p.id = img.producto_id
                     LEFT JOIN (
-                        SELECT producto_id, valor
+                        SELECT DISTINCT ON (producto_id) producto_id, valor
                         FROM precio
-                        ORDER BY fecha_inicio DESC
+                        ORDER BY producto_id, fecha_inicio DESC
                     ) pr ON pr.producto_id = p.id
                     WHERE pp.promocion_id = %s
                 """, (promo_id,))
-                
-                
+
                 productos_promo = cursor.fetchall()
                 promo_items = [{
                     "nombre": p[0],
                     "precio": float(p[1]) if p[1] else None,
-                    "descuento": float(p[2]) if p[2] is not None else None
+                    "descuento": float(p[2]) if p[2] is not None else None,
+                    "imagen": p[3]
                 } for p in productos_promo]
 
                 intereses_info.append({
@@ -225,7 +230,6 @@ def generate_banner_html_whit_intereses(cliente_id):
                     "nivel": nivel
                 })
             elif cat_id:
-    
                 cursor.execute("SELECT nombre, descripcion FROM categoria WHERE id = %s", (cat_id,))
                 cat_data = cursor.fetchone()
                 cat_nombre = cat_data[0] if cat_data else f"Categoría {cat_id}"
@@ -234,135 +238,24 @@ def generate_banner_html_whit_intereses(cliente_id):
                     "tipo": "categoria",
                     "id": cat_id,
                     "nombre": cat_nombre,
-                    "descripcion":cat_desc,
+                    "descripcion": cat_desc,
                     "nivel": nivel
                 })
 
-        # Convertir los intereses en texto
-        descripciones = []
-        for interes in intereses_info:
-            if interes["tipo"] == "producto":
-                texto = f"Interesado en el producto: '{interes['nombre']}' ({interes['descripcion']}), precio: ${interes['precio']}, imagen: {interes['imagen']}."
-            elif interes["tipo"] == "promocion":
-                productos_txt = ", ".join([
-                    f" :{p['nombre']} (${p['precio']})" + 
-                    (f" con {p['descuento']}% de descuento" if p.get("descuento") else "")
-                    for p in interes["productos"]
-                ])
-                texto = f"Interesado en la promoción: ' Promocion:{interes['nombre']}' con productos: {productos_txt}."
-            elif interes["tipo"] == "categoria":
-                 texto = f"Interesado en productos de la categoría: ' Categoria: {interes['nombre']}' ({interes['descripcion']})."
-            descripciones.append(texto)
-            
-            
-        preferencias_texto = "\n".join(descripciones)
-
-
-        logger.critical(f"todo el texto de los intereces {preferencias_texto}.")  # Log del resultaod de intereces
-
-
-
-        # Prompt con intereses como texto
-        prompt = f"""
-        Eres un generador de contenido HTML para campañas publicitarias personalizadas.
-
-         Tu tarea:
-        Generar un HTML de banner publicitario dirigido a un cliente llamado **{nombre}**, con número de contacto **{numero}**, y con las siguientes preferencias:\n{preferencias_texto}
-
-         Instrucciones de como armar el html:
-        - El HTML debe ser compatible con PDFShift.
-        - Usa Bootstrap desde un CDN para aplicar estilos. Incluye este enlace en el <head>:
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-        - Usa clases de Bootstrap para los estilos (no uses CSS personalizado ni <style>).
-        - No uses JavaScript.
-        - Ponle con Bootstrap mucho color , color de fondo, estilos con Bootstrap a las letras, que parezca una folleto publicitario.
-        - obligatorio poner fondo de la pagina de algun color segun veas la categoria que se tene de preferencia con boottrap.
-        - si hay productos de promocion, has una lista de esas promociones de 2 columnas en cards de colores.
-        - si hay categorias de preferencia, has cards de cada categoria.
-        - Debe parecer un anuncio llamativo o banner publicitario.
-        - Incluir un título atractivo y personalizado para {nombre}.
-        - Mostrar un mensaje principal conectado con sus intereses.
-        - si no hay preferencias , solo muestra algo vacio diciendo no tiene preferencias.
-        - hay tres secciones , si es que hay interes de: productos, promociones y de categorías , 
-        - Incluir imágenes con URLs de ejemplo si no se tienen.
-        - No ocupe ni inventes ningun producto o categoria, solo usa lo que te pase.
-        - Incluir al final un texto de contacto con la tienda +591 12345678.
-        
-
-         Responde únicamente con el HTML completo, sin explicaciones ni comentarios.
-        """
-
-        response = client_opneai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Eres un generador de banners en HTML para marketing digital."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-
-        html_result = response.choices[0].message.content
-        logger.info(f"HTML generado para {nombre}: {html_result[:80]}...")  # Log parcial
-        return html_result
+        return {
+            "cliente_id": cliente_id,
+            "nombre": nombre,
+            "telefono": numero,
+            "intereses": intereses_info
+        }
 
     except Exception as e:
-        logger.error(f"Error generando banner: {e}")
-        return "<html><body><h1>Error generando banner</h1></body></html>"
-       
+        logger.error(f"Error generando datos de banner: {e}")
+        return {"error": "Error generando datos de banner"}
+
         
-        
-        
-        
-        
-def generate_banner_html(nombre, numero, preferencias):
-    try:
-        
-        prompt = f"""
-            Eres un generador de contenido HTML para campañas publicitarias personalizadas.
-
-            🎯 Tu tarea:
-            Generar un HTML de banner publicitario dirigido a un cliente llamado **{nombre}**, con número de contacto **{numero}**, y con las siguientes preferencias: **{preferencias}**.
-
-            ✅ Requisitos:
-            
-            - Usa Bootstrap desde un CDN para aplicar estilos. Incluye este enlace en el <head>:
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-            - Usa clases de Bootstrap para los estilos (no uses CSS personalizado ni <style>).
-            - No uses JavaScript.
-            - Ponle con Bootstrap mucho color , color de fondo, estilos con Bootstrap a las letras, queparezca una folleto publicitario
-            - Debe parecer un anuncio llamativo o banner publicitario.
-            - Incluir un título atractivo y personalizado para {nombre}.
-            - Mostrar un mensaje principal conectado con sus intereses.
-            - Agregar 2 a 3 ofertas relevantes basadas en las preferencias.
-            - Incluir imágenes con URLs de ejemplo como: https://www.lafam.com.co/cdn/shop/files/front-0RX7230__5204__P21__shad__al2_704x480.jpg.
-            - Incluir al final un texto de contacto con el número: **{numero}**.
-
-            📦 Responde únicamente con el HTML completo, sin explicaciones ni comentarios.
-
-            📄 Estructura esperada:
-            <html>
-            <head>...</head>
-            <body>...</body>
-            </html>
-            """
-
-
-       
-
-        response = client_opneai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Eres un generador de banners en HTML para marketing digital."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-
-        html_result = response.choices[0].message.content
-        logger.info(f"{html_result[:80]}")  # Log parcial
-        return html_result
-
-    except Exception as e:
-        logger.error(f"Error generando banner: {e}")
-        return "<html><body><h1>Error generando banner</h1></body></html>"
+    
+    
 @app.route('/initialize', methods=['POST'])
 def initialize():
     try:
@@ -486,6 +379,15 @@ def analizarintenciones(historial_texto, Json_productos_promos_categorias, clien
         logger.error(f"Error en analizarintenciones(): {e}")
         return {"interes": []}  # Devolver un dict vacío por consistencia
 
+@app.route('/clientes', methods=['GET'])
+def obtener_clientes():
+    try:
+        lista_clientes = mensajeria.obtener_clientes_activos()
+        return jsonify(lista_clientes), 200
+    except Exception as e:
+        logger.error(f"Error al obtener clientes: {e}")
+        return jsonify({"error": "No se pudieron obtener los clientes"}), 500
+
  
 @app.route('/analizarintenciones', methods=['POST'])
 def analizar_intenciones():
@@ -495,6 +397,7 @@ def analizar_intenciones():
         embeddings.initialize()
 
         from_number = request.form.get('From')
+        
         if not from_number:
             return jsonify({"status": "error", "message": "Número no proporcionado"}), 400
 
@@ -631,185 +534,6 @@ def test_json():
         return jsonify({"error": str(e)}), 500
     
     
-@app.route('/generatepdf', methods=['POST'])
-def generate_pdf():
-    try:
-        data = request.get_json()
-        if data is None:
-            return jsonify({"error": "JSON inválido o Content-Type incorrecto"}), 400
-        data = request.get_json()
-        nombre = data.get("nombre")
-        numero = data.get("numero")
-        preferencias = data.get("preferencias")
-
-        if not all([nombre, numero, preferencias]):
-            return jsonify({"error": "Faltan campos requeridos"}), 400
-
-        html = generate_banner_html(nombre, numero, preferencias)
-        
-       
-        print(html)  # Quitar en producción
-        
-        return (html, 200, {'Content-Type': 'text/html'})
-
-        response = requests.post(
-            'https://api.pdfshift.io/v3/convert/pdf',
-            headers={ 'X-API-Key': PDFSHIFT_API_KEY },
-            json={ 'source': html,
-                    "landscape": False,
-                    "use_print": False}
-        )
-
-
-        response.raise_for_status()
-
-        return (response.content, 200, {
-            'Content-Type': 'application/pdf',
-            'Content-Disposition': 'inline; filename="banner.pdf"'
-        })
-
-    except Exception as e:
-        return jsonify({"error trycatch": str(e)}), 500
-
-@app.route('/generatepdf2', methods=['POST'])
-def generate_pdf2():
-    try:
-        data = request.get_json()
-        if data is None:
-            return jsonify({"error": "JSON inválido o Content-Type incorrecto"}), 400
-
-        nombre = data.get("nombre")
-        numero = data.get("numero")
-
-        if not all([nombre, numero]):
-            return jsonify({"error": "Faltan campos requeridos"}), 400
-        
-        
-
-        #html = generate_banner_html(nombre, numero, preferencias)
-        generador = GenerateHTML(
-            nombre="Carlos",
-            productos=[
-                {"nombre": "Zapatos deportivos", "descripcion": "Cómodos y livianos", "precio": 49.99},
-                {"nombre": "Mochila impermeable", "descripcion": "Ideal para viajes", "precio": 29.50}
-            ],
-            categorias=["Ropa deportiva", "Accesorios de viaje"],
-            promociones=["20% en la segunda unidad", "Envío gratis por compras mayores a $100"]
-        )
-
-        html_resultado = generador.generate_banner()
-
-        # Llamada a ScreenshotOne con contenido HTML
-        screenshot_response = requests.get(
-            "https://api.screenshotone.com/take",
-            params={
-                "access_key": SCREENSHOTONE_API_KEY,
-                "html": html_resultado,
-                "full_page": "true",
-                "format": "jpeg"
-            }
-        )
-
-        screenshot_response.raise_for_status()
-
-        return (
-            screenshot_response.content,
-            200,
-            {
-                'Content-Type': 'image/jpeg',
-                'Content-Disposition': 'inline; filename="banner.jpg"'
-            }
-        )
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/generatepdfpersonalwhitenvio', methods=['POST'])
-def generatepdfpersonalwhitenvio():
-    try:
-        data = request.get_json()
-        numero = data.get("numero")
-
-        if not numero:
-            return jsonify({"error": "Faltan campos requeridos"}), 400
-
-        cliente_id = mensajeria.get_or_create_cliente_id(numero)
-        html = generate_banner_html_whit_intereses(cliente_id)
-
-        # Generar el PDF con PDFShift
-        try:
-            response = requests.post(
-                'https://api.pdfshift.io/v3/convert/pdf',
-                headers={'X-API-Key': PDFSHIFT_API_KEY},
-                json={
-                    'source': html,
-                    "landscape": False,
-                    "use_print": False
-                }
-            )
-            response.raise_for_status()
-        except Exception as pdf_error:
-            logger.error(f"Error generando PDF con PDFShift: {pdf_error}")
-            return jsonify({"error": "No se pudo generar el PDF. Intenta más tarde."}), 500
-
-        # Subir PDF a Cloudinary
-        try:
-          # Guardar PDF en archivo temporal
-            temp_pdf_path = f"/tmp/banner_{numero}.pdf"
-            with open(temp_pdf_path, "wb") as f:
-                f.write(response.content)
-
-            # Subir archivo a Cloudinary desde el path
-            upload_result = cloudinary.uploader.upload_large(
-                temp_pdf_path,
-                resource_type="raw",
-                public_id=f"banner_pdf_{numero}"
-            )
-
-            media_url = upload_result["secure_url"]
-        except Exception as cloudinary_error:
-            logger.error(f"Error subiendo PDF a Cloudinary: {cloudinary_error}")
-            return jsonify({"error": "Error al subir el PDF generado. Intenta más tarde."}), 500
-
-        # Enviar mensaje WhatsApp con el PDF
-        to_number = f"whatsapp:{numero}"
-        from_number = f"whatsapp:{os.getenv('TWILIO_SANDBOX_NUMBER')}"
-
-        try:
-            message = client.messages.create(
-                body="¡Aquí está tu banner personalizado en PDF!",
-                from_=from_number,
-                to=to_number,
-                media_url=[media_url]
-            )
-        except Exception as twilio_error:
-            logger.error(f"Error enviando PDF por WhatsApp: {twilio_error}")
-            return jsonify({"error": "El PDF fue generado pero no se pudo enviar por WhatsApp."}), 500
-
-        # Obtener conversation_id REAL
-        numero_sin_prefijo = to_number 
-        cliente_id = mensajeria.get_or_create_cliente_id(numero_sin_prefijo)
-        conversacion_id = mensajeria.get_conversacion_id(cliente_id)
-
-        # Guardar en la BD solo si todo fue exitoso
-        mensajeria.store_outgoing_message(
-                conversation_id=conversacion_id,
-                content_text='Se envió el PDF personalizado por WhatsApp',
-                media_url=media_url,
-                media_mimetype='application/pdf',
-                media_filename=f"banner_pdf_{numero}.pdf"
-            )
-
-        return jsonify({'status': 'PDF generado y enviado por WhatsApp', 'sid': message.sid}), 200
-
-    except Exception as e:
-        logger.error(f"Error general en /generatepdfpersonalwhitenvio: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-
-
-
     
 @app.route('/generatepdfpersonal', methods=['POST'])
 def generatepdfpersonal():
@@ -817,37 +541,198 @@ def generatepdfpersonal():
         data = request.get_json()
        
         numero = data.get("numero")
+        nombre = data.get("nombre")
+        correo = data.get("correo")
         
 
-        if not all([ numero]):
-            return jsonify({"error": "Faltan campos requeridos"}), 400
+        if not nombre:
+            return jsonify({"error": "Falta el nombre del cliente"}), 400
+        if not numero and not correo:
+            return jsonify({"error": "Debes proporcionar al menos un número o correo"}), 400
 
         cliente_id = mensajeria.get_or_create_cliente_id(numero)
         
         
-        html = generate_banner_html_whit_intereses(cliente_id)
+        json = generate_banner_data_with_intereses(cliente_id)
 
-        #print(html)  # Quitar en producción
+        if not json.get("intereses"):
+            return jsonify({"error": "No hay intereses disponibles para generar el banner."}), 400
+
+        html= GenerateHTML(nombre=nombre)
         
-        #return (html, 200, {'Content-Type': 'text/html'})
-
-        response = requests.post(
-            'https://api.pdfshift.io/v3/convert/pdf',
-            headers={ 'X-API-Key': PDFSHIFT_API_KEY },
-            json={ 'source': html,
-                    "landscape": False,
-                    "use_print": False}
+        htmlresult = html.generate_banner(json)
+        
+        # Llamada a ScreenshotOne con contenido HTML
+        screenshot_response = requests.get(
+            "https://api.screenshotone.com/take",
+            params={
+                "access_key": SCREENSHOTONE_API_KEY,
+                "html": htmlresult,
+                "full_page": "true",
+                "format": "jpeg"
+            }
         )
 
+        screenshot_response.raise_for_status()
 
-        response.raise_for_status()
+        # 2. Guardar temporalmente la imagen
+        temp_image_path = f"/tmp/banner_{numero}.jpg"
+        with open(temp_image_path, "wb") as f:
+            f.write(screenshot_response.content)
 
-        return (response.content, 200, {
-            'Content-Type': 'application/pdf',
-            'Content-Disposition': 'inline; filename="banner.pdf"'
-        })
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        unique_id = f"banner_img_{numero}_{timestamp}"
+
+        # 3. Subir imagen a Cloudinary
+        try:
+            upload_result = cloudinary.uploader.upload(
+                temp_image_path,
+                resource_type="image",
+                public_id=unique_id
+            )
+            
+            media_url = upload_result["secure_url"]
+        except Exception as cloudinary_error:
+            logger.error(f"Error subiendo imagen a Cloudinary: {cloudinary_error}")
+            return jsonify({"error": "Error al subir la imagen generada. Intenta más tarde."}), 500
+
+        # 4. Enviar imagen por WhatsApp con Twilio
+        if numero:
+            to_number = f"whatsapp:{numero}"
+            from_number = f"whatsapp:{os.getenv('TWILIO_SANDBOX_NUMBER')}"
+            try:
+                message = client.messages.create(
+                    body="¡Aquí está tu banner personalizado!",
+                    from_=from_number,
+                    to=to_number,
+                    media_url=[media_url]
+                )
+            except Exception as twilio_error:
+                logger.error(f"Error enviando imagen por WhatsApp: {twilio_error}")
+                return jsonify({"error": "La imagen fue generada pero no se pudo enviar por WhatsApp."}), 500
+
+        #4.2 si hay correo enviar por correo 
+        if correo:
+            msg = EmailMessage()
+            msg['Subject'] = '🎉 tenemos Porductos que te podrian interesar a Ti'
+            msg['From'] = formataddr(('Soporte', email_user))
+            msg['To'] = correo
+            msg.set_content("Hola,\n\nAquí tienes tu banner personalizado. ¡Gracias por tu interés!")
+
+            with open(temp_image_path, 'rb') as img:
+                img_data = img.read()
+                msg.add_attachment(
+                    img_data,
+                    maintype='image',
+                    subtype='jpeg',
+                    filename=f"banner_{numero}.jpg"
+                )
+
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+                smtp.login(email_user, email_pass)
+                smtp.send_message(msg)
+
+
+
+        # 5. Guardar el mensaje en la base de datos
+        conversacion_id = mensajeria.get_conversacion_id(cliente_id)
+        mensajeria.store_outgoing_message(
+            conversation_id=conversacion_id,
+            content_text="Se envió el banner personalizado por WhatsApp",
+            media_url=media_url,
+            media_mimetype="image/jpeg",
+            media_filename=f"banner_img_{numero}.jpg"
+        )
+        
+        mensajeria.marcar_interes_como_procesado(cliente_id=cliente_id, medio="correo,twilio")
+
+        return jsonify({'status': 'Imagen generada y enviada por WhatsApp', 'sid': message.sid}), 200
+
 
     except Exception as e:
+        logger.error(f"Error general en /generateimagepersonalwhitenvio: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+
+@app.route('/generateimagepersonalwithemail', methods=['POST'])
+def generateimagepersonalwithemail():
+    try:
+        data = request.get_json()
+        numero = data.get("numero")
+        correo = data.get("correo")
+        nombre = data.get("nombre")
+
+        if not numero or not correo or not nombre:
+            return jsonify({"error": "Número, nombre o correo faltante"}), 400
+
+        cliente_id = mensajeria.get_or_create_cliente_id(numero)
+        json_data = generate_banner_data_with_intereses(cliente_id)
+
+        html = GenerateHTML(nombre=nombre)
+        html_result = html.generate_banner(json_data)
+
+        screenshot_response = requests.get(
+            "https://api.screenshotone.com/take",
+            params={
+                "access_key": SCREENSHOTONE_API_KEY,
+                "html": html_result,
+                "full_page": "true",
+                "format": "jpeg"
+            }
+        )
+        screenshot_response.raise_for_status()
+
+        # Guardar imagen temporal
+        temp_image_path = f"/tmp/banner_{numero}.jpg"
+        with open(temp_image_path, "wb") as f:
+            f.write(screenshot_response.content)
+
+        # Subir a Cloudinary (opcional, por si también quieres registro en BD)
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        unique_id = f"banner_email_{numero}_{timestamp}"
+
+        upload_result = cloudinary.uploader.upload(
+            temp_image_path,
+            resource_type="image",
+            public_id=unique_id
+        )
+        media_url = upload_result["secure_url"]
+
+
+        msg = EmailMessage()
+        msg['Subject'] = '🎉 tenemos Porductos que te podrian interesar a Ti'
+        msg['From'] = formataddr(('Soporte', email_user))
+        msg['To'] = correo
+        msg.set_content("Hola,\n\nAquí tienes tu banner personalizado. ¡Gracias por tu interés!")
+
+        with open(temp_image_path, 'rb') as img:
+            img_data = img.read()
+            msg.add_attachment(
+                img_data,
+                maintype='image',
+                subtype='jpeg',
+                filename=f"banner_{numero}.jpg"
+            )
+
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(email_user, email_pass)
+            smtp.send_message(msg)
+
+        # Registrar en la base de datos
+        conversacion_id = mensajeria.get_conversacion_id(cliente_id)
+        mensajeria.store_outgoing_message(
+            conversation_id=conversacion_id,
+            content_text="Se envió el banner personalizado por correo electrónico",
+            media_url=media_url,
+            media_mimetype="image/jpeg",
+            media_filename=f"banner_{numero}.jpg"
+        )
+
+        return jsonify({'status': 'Imagen enviada correctamente por correo'}), 200
+
+    except Exception as e:
+        logger.error(f"Error en /generateimagepersonalwithemail: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/send_message', methods=['POST'])

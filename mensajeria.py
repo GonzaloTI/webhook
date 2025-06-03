@@ -1,6 +1,6 @@
 import os
 import psycopg2
-from datetime import date
+from datetime import date, datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -139,11 +139,11 @@ class Mensajeria:
             cursor.execute(
                 """
                 SELECT id FROM conversacion
-                WHERE cliente_id = %s AND fecha = %s
-                AND procesado = FALSE
+                WHERE cliente_id = %s 
+                AND procesado = false
                 ORDER BY id DESC 
                 """,
-                (cliente_id, date.today())
+                (cliente_id,)
             )
             resultados = cursor.fetchall()
             ids = [fila[0] for fila in resultados]
@@ -177,6 +177,26 @@ class Mensajeria:
             cursor.close()
             conn.close()
 
+    def marcar_interes_como_procesado(self,cliente_id: int, medio: str):
+        conn = self.get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE interes
+                SET procesado = TRUE,
+                    fecha_envio = %s,
+                    medio = %s
+                WHERE cliente_id = %s
+                AND procesado = FALSE
+            """, (datetime.now(), medio, cliente_id))
+            conn.commit()
+            logger.info(f"Intereses del cliente {cliente_id} marcados como procesados vía {medio}.")
+        except Exception as e:
+            logger.error(f"Error al marcar intereses como procesados: {e}")
+            conn.rollback()
+        finally:
+            cursor.close()
+            conn.close()
 
     def store_message_twilio(self, conversation_id, response_ia):
         conn = self.get_db_connection()
@@ -268,6 +288,34 @@ class Mensajeria:
         except Exception as e:
             logger.error(f"Error guardando mensaje saliente: {e}")
             conn.rollback()
+        finally:
+            cursor.close()
+    
+    def obtener_clientes_activos(self):
+        conn = self.get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, telefono, nombre, correo, fecha_creacion, activo
+                FROM cliente
+                WHERE activo = true
+                ORDER BY id ASC
+            """)
+            clientes = cursor.fetchall()
+            lista_clientes = []
+            for c in clientes:
+                lista_clientes.append({
+                    "id": c[0],
+                    "telefono": c[1],
+                    "nombre": c[2],
+                    "correo": c[3],
+                    "fecha_creacion": str(c[4]),
+                    "activo": c[5]
+                })
+            return lista_clientes
+        except Exception as e:
+            logger.error(f"Error al obtener clientes activos: {e}")
+            return []
         finally:
             cursor.close()
 
