@@ -602,7 +602,7 @@ def generatepdfpersonal():
             from_number = f"whatsapp:{os.getenv('TWILIO_SANDBOX_NUMBER')}"
             try:
                 message = client.messages.create(
-                    body="¡Aquí está tu banner personalizado!",
+                    body="¡Tenemos estas ofertas para Ti!",
                     from_=from_number,
                     to=to_number,
                     media_url=[media_url]
@@ -617,7 +617,7 @@ def generatepdfpersonal():
             msg['Subject'] = '🎉 tenemos Porductos que te podrian interesar a Ti'
             msg['From'] = formataddr(('Soporte', email_user))
             msg['To'] = correo
-            msg.set_content("Hola,\n\nAquí tienes tu banner personalizado. ¡Gracias por tu interés!")
+            msg.set_content("Hola,\n\nAquí tienes algunas de nuestra ofertas que te podrían interesar a ti. ¡Gracias por tu interés!")
 
             with open(temp_image_path, 'rb') as img:
                 img_data = img.read()
