@@ -54,46 +54,168 @@ class GenerateHTML:
                 </html>
                 """
             ),
-            (
-                f"""
-                <!DOCTYPE html>
-                <html lang=\"es\">
-                <head>
-                    <meta charset=\"UTF-8\">
-                    <title>Hola denuevo  nombrepersona</title>
-                    <link href=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css\" rel=\"stylesheet\">
-                    <style>
-                        body {{
-                            background-color: #fff8e1;
-                            padding: 30px;
-                            font-family: sans-serif;
-                            display: flex;
-                            justify-content: center;
-                            align-items: center;
-                            text-align: center;
-                        }}
-                        .container {{
-                            max-width: 960px;
-                        }}
-                    </style>
-                </head>
-                <body>
-                <div class=\"container border border-warning p-4 bg-light rounded\">
-                    <div class=\"text-center mb-3\">
-                        <h1 class=\"text-warning\">Hola denuevo  nombrepersona !</h1>
-                        <p class=\"text-muted\">Explora nuestras increíbles ofertas:</p>
-                    </div>
-                """,
-                """
-                    <div class=\"text-center mt-4\">
-                        <p class=\"text-muted\">📩 Escríbenos si deseas más detalles o ayuda</p>
-                    </div>
-                </div>
-                </body>
-                </html>
-                """
-            )
-        ]
+               
+         (
+        f"""<!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <title>Bienvenido nombrepersona</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                body {{
+                    background-image: url('https://www.robertomartin.com/fotos-gafas/2023/04/gafas-de-sol-atemporales-no-pasan-de-moda.jpg');
+                    background-size: cover;
+                    background-position: center;
+                    min-height: 100vh;
+                    color: white;
+                    padding: 50px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }}
+                .banner {{
+                    background-color: rgba(0, 0, 0, 0.6);
+                    padding: 2rem;
+                    border-radius: 12px;
+                    text-align: center;
+                }}
+            </style>
+        </head>
+        <body>
+        <div class="banner">
+            <h1>¡Hola nombrepersona!</h1>
+            <p>Descubre las gafas más modernas del mercado</p>
+        """,
+        """
+            <p>🌟 ¡No te quedes sin las tuyas!</p>
+        </div>
+        </body>
+        </html>
+        """
+    ),
+    (
+        f"""<!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <title>¡Hola nombrepersona!</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                body {{
+                    background-image: url('https://m.media-amazon.com/images/I/31aN6FpsmIS._SY445_SX342_QL70_ML2_.jpg');
+                    background-size: cover;
+                    background-repeat: no-repeat;
+                    background-position: center;
+                    color: #fff;
+                    padding: 30px;
+                    font-family: Arial, sans-serif;
+                }}
+                .wrapper {{
+                    background-color: rgba(0, 0, 0, 0.5);
+                    border-radius: 10px;
+                    padding: 20px;
+                    text-align: center;
+                }}
+            </style>
+        </head>
+        <body>
+        <div class="wrapper">
+            <h2>¡Hola nombrepersona!</h2>
+            <p>Elige tu nuevo estilo con nuestras gafas exclusivas</p>
+        """,
+        """
+            <p>🔍 Revisa nuestro catálogo hoy mismo</p>
+        </div>
+        </body>
+        </html>
+        """
+    ),
+    (
+        f"""<!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <title>Hola nombrepersona</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                body {{
+                    background-image: url('https://multimedia.3m.com/mws/media/1063891J/3m-scotchgard-af-googlegear-500-cloth-strap.jpg');
+                    background-size: cover;
+                    background-position: center;
+                    padding: 50px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #fff;
+                }}
+                .frame {{
+                    background-color: rgba(255, 255, 255, 0.1);
+                    padding: 30px;
+                    border-radius: 15px;
+                    text-align: center;
+                }}
+            </style>
+        </head>
+        <body>
+        <div class="frame">
+            <h1>¡Hola nombrepersona!</h1>
+            <p>Seguridad y estilo combinados en una sola mirada</p>
+        """,
+        """
+            <p>🔒 Protege tus ojos con clase</p>
+        </div>
+        </body>
+        </html>
+        """
+    ),
+    (
+        f"""<!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <title>¡Hola nombrepersona!</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                body {{
+                    background-image: url('https://www.grupobillingham.com/blog/wp-content/uploads/2022/08/Gafas-de-sol-1140x624.jpg');
+                    background-size: cover;
+                    background-position: center;
+                    background-repeat: no-repeat;
+                    min-height: 100vh;
+                    padding: 40px;
+                    font-family: Verdana, sans-serif;
+                    color: #fff;
+                }}
+                .box {{
+                    background-color: rgba(0,0,0,0.65);
+                    padding: 2rem;
+                    border-radius: 10px;
+                    text-align: center;
+                }}
+            </style>
+        </head>
+        <body>
+        <div class="box">
+            <h2>¡Hola nombrepersona!</h2>
+            <p>Encuentra tu estilo ideal con nuestras gafas de sol</p>
+        """,
+        """
+            <p>🌞 Disfruta del sol con protección y moda</p>
+        </div>
+        </body>
+        </html>
+        """
+      )
+    ]
+    
+            
+            
+            
+        
+        
+        
+        
 
     def generate_banner(self, datasjon):
         self.nombre = datasjon.get("nombre", self.nombre)
